@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>KATANA — Duelo de Samuráis</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    background: #0a0a12;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+  }
+  #wrap { position: relative; }
+  canvas {
+    display: block;
+    max-width: 100vw;
+    max-height: 100vh;
+    image-rendering: pixelated;
+    box-shadow: 0 0 60px rgba(180, 40, 40, .25);
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  #rotate {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    background: #0a0a12;
+    color: #e8e0d0;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 22px;
+    line-height: 1.8;
+  }
+  @media (orientation: portrait) and (pointer: coarse) {
+    #rotate { display: flex; }
+  }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game" width="960" height="540"></canvas></div>
+<div id="rotate">📱⟳<br>Gira tu teléfono<br><span style="font-size:15px;color:#998">el duelo se juega en horizontal</span></div>
+<script>
+'use strict';
+
+// ============================================================
+//  KATANA — Duelo de Samuráis
+//  Un corte limpio mata. Choca espadas. Esquiva. Sobrevive.
+// ============================================================
+
+const cvs = document.getElementById('game');
+const ctx = cvs.getContext('2d');
+const W = cvs.width, H = cvs.height;
+const GROUND = H - 80;
+const WIN_ROUNDS = 3;
+
+// ---------------- Audio (sintetizado, sin archivos) ----------------
+const AC = window.AudioContext || window.webkitAudioContext;
+let audio = null;
+function initAudio() { if (!audio) audio = new AC(); if (audio.state === 'suspended') audio.resume(); }
+
+function noiseBuffer(dur) {
+  const len = Math.floor(audio.sampleRate * dur);
+  const buf = audio.createBuffer(1, len, audio.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  return buf;
+}
+
+function sfxSlash() {
+  if (!audio) return;
+  const t = audio.currentTime;
+  const src = audio.createBufferSource();
+  src.buffer = noiseBuffer(0.25);
+  const f = audio.createBiquadFilter();
+  f.type = 'bandpass';
+  f.frequency.setValueAtTime(800, t);
+  f.frequency.exponentialRampToValueAtTime(4500, t + 0.12);
+  f.Q.value = 1.2;
+  const g = audio.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.5, t + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+  src.connect(f); f.connect(g); g.connect(audio.destination);
+  src.start(t);
+}
+
+function sfxClash() {
+  if (!audio) return;
+  const t = audio.currentTime;
+  // golpe metálico: varios osciladores inarmónicos
+  [2400, 3170, 4080, 5300].forEach((fr, i) => {
+    const o = audio.createOscillator();
+    o.type = 'square';
+    o.frequency.value = fr * (1 + Math.random() * 0.02);
+    const g = audio.createGain();
+    g.gain.setValueAtTime(0.12 / (i + 1), t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+    o.connect(g); g.connect(audio.destination);
+    o.start(t); o.stop(t + 0.4);
+  });
+  const src = audio.createBufferSource();
+  src.buffer = noiseBuffer(0.1);
+  const hp = audio.createBiquadFilter();
+  hp.type = 'highpass'; hp.frequency.value = 5000;
+  const g = audio.createGain();
+  g.gain.setValueAtTime(0.3, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
+  src.connect(hp); hp.connect(g); g.connect(audio.destination);
+  src.start(t);
+}
+
+function sfxKill() {
+  if (!audio) return;
+  const t = audio.currentTime;
+  const o = audio.createOscillator();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(220, t);
+  o.frequency.exponentialRampToValueAtTime(40, t + 0.6);
+  const g = audio.createGain();
+  g.gain.setValueAtTime(0.35, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+  o.connect(g); g.connect(audio.destination);
+  o.start(t); o.stop(t + 0.75);
+  const src = audio.createBufferSource();
+  src.buffer = noiseBuffer(0.4);
+  const f = audio.createBiquadFilter();
+  f.type = 'lowpass'; f.frequency.value = 900;
+  const g2 = audio.createGain();
+  g2.gain.setValueAtTime(0.4, t);
+  g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+  src.connect(f); f.connect(g2); g2.connect(audio.destination);
+  src.start(t);
+}
+
+function sfxDash() {
+  if (!audio) return;
+  const t = audio.currentTime;
+  const src = audio.createBufferSource();
+  src.buffer = noiseBuffer(0.15);
+  const f = audio.createBiquadFilter();
+  f.type = 'bandpass';
+  f.frequency.setValueAtTime(300, t);
+  f.frequency.exponentialRampToValueAtTime(1200, t + 0.1);
+  const g = audio.createGain();
+  g.gain.setValueAtTime(0.15, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+  src.connect(f); f.connect(g); g.connect(audio.destination);
+  src.start(t);
+}
+
+// ---------------- Entrada ----------------
+const keys = {};
+window.addEventListener('keydown', e => {
+  initAudio();
+  keys[e.code] = true;
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault();
+  handleMenuKey(e.code);
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// ---------------- Controles táctiles (móvil) ----------------
+const TOUCH = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+const touchState = { left: false, right: false, jump: false, attack: false, dash: false };
+
+const TBTN = [
+  { id: 'left',   x: 85,      y: H - 65,  r: 46, label: '◀' },
+  { id: 'right',  x: 200,     y: H - 65,  r: 46, label: '▶' },
+  { id: 'jump',   x: 142,     y: H - 168, r: 36, label: '▲' },
+  { id: 'attack', x: W - 85,  y: H - 75,  r: 52, label: '斬' },
+  { id: 'dash',   x: W - 210, y: H - 55,  r: 42, label: '風' },
+];
+
+function canvasPos(t) {
+  const r = cvs.getBoundingClientRect();
+  return { x: (t.clientX - r.left) * (W / r.width), y: (t.clientY - r.top) * (H / r.height) };
+}
+
+function updateTouches(e) {
+  e.preventDefault();
+  initAudio();
+  for (const k in touchState) touchState[k] = false;
+  for (const t of e.touches) {
+    const p = canvasPos(t);
+    for (const b of TBTN) {
+      if (Math.hypot(p.x - b.x, p.y - b.y) < b.r + 14) touchState[b.id] = true;
+    }
+  }
+}
+
+cvs.addEventListener('touchstart', e => {
+  updateTouches(e);
+  const t = e.changedTouches[0];
+  if (!t) return;
+  const p = canvasPos(t);
+  if (scene === 'menu') {
+    if (Math.abs(p.y - H * 0.58) < 24) { menuSel = 0; vsCPU = true; newMatch(); }
+    else if (Math.abs(p.y - (H * 0.58 + 42)) < 24) { menuSel = 1; vsCPU = false; newMatch(); }
+  } else if (scene === 'matchEnd') {
+    scene = 'menu';
+  }
+}, { passive: false });
+cvs.addEventListener('touchmove', updateTouches, { passive: false });
+cvs.addEventListener('touchend', updateTouches, { passive: false });
+cvs.addEventListener('touchcancel', updateTouches, { passive: false });
+
+// ---------------- Estado global ----------------
+// scene: 'menu' | 'fight' | 'roundEnd' | 'matchEnd'
+let scene = 'menu';
+let menuSel = 0;            // 0 = 1 jugador, 1 = 2 jugadores
+let vsCPU = true;
+let p1, p2;
+let timeScale = 1;          // cámara lenta al matar
+let slowmoTimer = 0;
+let shake = 0;
+let roundMsg = '', roundMsgTimer = 0;
+let roundStartTimer = 0;    // cuenta regresiva "¡LISTOS!... ¡CORTEN!"
+let matchWinner = null;
+let particles = [];
+let slashTrails = [];
+let lastTime = 0;
+
+// ---------------- Jugador ----------------
+const PSTATE = { IDLE: 0, WINDUP: 1, ATTACK: 2, RECOVER: 3, DASH: 4, DEAD: 5, CLASHED: 6 };
+
+const CFG = {
+  speed: 260,
+  jumpVel: -560,
+  gravity: 1500,
+  windupTime: 0.16,     // telegrafía del ataque
+  attackTime: 0.10,     // frames activos: la hoja mata
+  recoverTime: 0.30,    // vulnerable tras fallar
+  dashTime: 0.18,       // invencible mientras dura
+  dashSpeed: 620,
+  dashCost: 34,
+  attackCost: 26,
+  staminaRegen: 38,     // por segundo
+  reach: 92,            // alcance de la katana
+  clashKnockback: 380,
+  clashStun: 0.28,
+};
+
+// paletas de color de cada samurái
+const PAL1 = {
+  kimono: '#ece4d2', kimonoDark: '#c6b89e',
+  hakama: '#8c2424', hakamaDark: '#641a1a',
+  obi: '#3a2a22', accent: '#c03434',
+  skin: '#dca87c', hair: '#1c1410',
+};
+const PAL2 = {
+  kimono: '#3c3c5c', kimonoDark: '#2a2a42',
+  hakama: '#202034', hakamaDark: '#161624',
+  obi: '#4a3a1e', accent: '#4a80d8',
+  skin: '#c89868', hair: '#0d0d14',
+};
+
+function makePlayer(x, facing, pal, isCPU, name) {
+  return {
+    x, y: GROUND, vx: 0, vy: 0,
+    facing,                 // 1 derecha, -1 izquierda
+    pal, color: pal.kimono, accent: pal.accent, name,
+    state: PSTATE.IDLE,
+    stateTimer: 0,
+    stamina: 100,
+    wins: 0,
+    isCPU,
+    onGround: true,
+    crouch: false,
+    deathT: 0,
+    // IA
+    aiTimer: 0, aiAction: 'approach', aiReact: 0,
+    // animación
+    bob: Math.random() * 10,
+  };
+}
+
+function resetRound() {
+  const w1 = p1 ? p1.wins : 0, w2 = p2 ? p2.wins : 0;
+  const cpu = p2 ? p2.isCPU : vsCPU;
+  p1 = makePlayer(W * 0.25, 1, PAL1, false, 'JUGADOR 1');
+  p2 = makePlayer(W * 0.75, -1, PAL2, cpu, cpu ? 'CPU' : 'JUGADOR 2');
+  p1.wins = w1; p2.wins = w2;
+  particles = [];
+  slashTrails = [];
+  timeScale = 1; slowmoTimer = 0; shake = 0;
+  roundStartTimer = 2.2;
+  scene = 'fight';
+}
+
+function newMatch() {
+  p1 = null; p2 = null;
+  matchWinner = null;
+  resetRound();
+}
+
+function handleMenuKey(code) {
+  if (scene === 'menu') {
+    if (code === 'ArrowUp' || code === 'KeyW') menuSel = (menuSel + 1) % 2;
+    if (code === 'ArrowDown' || code === 'KeyS') menuSel = (menuSel + 1) % 2;
+    if (code === 'Enter' || code === 'Space') {
+      vsCPU = (menuSel === 0);
+      newMatch();
+    }
+  } else if (scene === 'matchEnd') {
+    if (code === 'Enter' || code === 'Space') { scene = 'menu'; }
+  }
+}
+
+// ---------------- Partículas ----------------
+function spawnParticles(x, y, n, colors, speed, life) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = speed * (0.3 + Math.random() * 0.7);
+    particles.push({
+      x, y,
+      vx: Math.cos(a) * s,
+      vy: Math.sin(a) * s - speed * 0.3,
+      life: life * (0.5 + Math.random() * 0.5),
+      maxLife: life,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      size: 2 + Math.random() * 3,
+      gravity: true,
+    });
+  }
+}
+
+function spawnSparks(x, y) {
+  for (let i = 0; i < 22; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = 150 + Math.random() * 450;
+    particles.push({
+      x, y,
+      vx: Math.cos(a) * s,
+      vy: Math.sin(a) * s,
+      life: 0.15 + Math.random() * 0.25,
+      maxLife: 0.4,
+      color: ['#fff', '#ffe080', '#ffb030'][Math.floor(Math.random() * 3)],
+      size: 1.5 + Math.random() * 2,
+      gravity: false,
+    });
+  }
+}
+
+// pétalos / hojas flotando de ambiente
+const petals = [];
+for (let i = 0; i < 26; i++) {
+  petals.push({
+    x: Math.random() * W, y: Math.random() * H,
+    sway: Math.random() * Math.PI * 2,
+    speed: 14 + Math.random() * 28,
+    size: 2 + Math.random() * 3,
+  });
+}
+
+// ---------------- Lógica de combate ----------------
+function bodyCenterY(p) {
+  return p.y - (p.crouch ? 26 : 46);
+}
+function isAttacking(p) { return p.state === PSTATE.ATTACK; }
+function isVulnerable(p) {
+  return p.state !== PSTATE.DASH && p.state !== PSTATE.DEAD;
+}
+function canAct(p) {
+  return p.state === PSTATE.IDLE && roundStartTimer <= 0;
+}
+
+function startAttack(p) {
+  if (!canAct(p) || p.stamina < CFG.attackCost) return;
+  p.stamina -= CFG.attackCost;
+  p.state = PSTATE.WINDUP;
+  p.stateTimer = CFG.windupTime;
+}
+
+function startDash(p, dir) {
+  if (!canAct(p) || p.stamina < CFG.dashCost) return;
+  p.stamina -= CFG.dashCost;
+  p.state = PSTATE.DASH;
+  p.stateTimer = CFG.dashTime;
+  p.vx = dir * CFG.dashSpeed;
+  sfxDash();
+  for (let i = 0; i < 8; i++) {
+    particles.push({
+      x: p.x - dir * i * 6, y: p.y - 30 - Math.random() * 30,
+      vx: -dir * 60, vy: -20 + Math.random() * 40,
+      life: 0.3, maxLife: 0.3, color: 'rgba(220,220,255,0.5)',
+      size: 3 + Math.random() * 4, gravity: false,
+    });
+  }
+}
+
+function kill(victim, killer) {
+  if (victim.state === PSTATE.DEAD) return;
+  victim.state = PSTATE.DEAD;
+  victim.stateTimer = 0;
+  victim.vx = killer.facing * 320;
+  victim.vy = -260;
+  killer.wins++;
+  sfxKill();
+  shake = 18;
+  timeScale = 0.15;
+  slowmoTimer = 1.0;
+  spawnParticles(victim.x, bodyCenterY(victim), 50, ['#c01818', '#901010', '#e03030'], 380, 1.2);
+  slashTrails.push({
+    x1: victim.x - killer.facing * 70, y1: bodyCenterY(victim) - 50,
+    x2: victim.x + killer.facing * 70, y2: bodyCenterY(victim) + 40,
+    life: 0.8, maxLife: 0.8,
+  });
+  if (killer.wins >= WIN_ROUNDS) matchWinner = killer;
+  scene = 'roundEnd';
+  roundMsg = '¡CORTE LIMPIO!';
+  roundMsgTimer = matchWinner ? 2.4 : 2.0;
+}
+
+function doClash(a, b) {
+  const midX = (a.x + b.x) / 2;
+  const midY = (bodyCenterY(a) + bodyCenterY(b)) / 2 - 6;
+  sfxClash();
+  spawnSparks(midX, midY);
+  shake = 10;
+  timeScale = 0.35;
+  slowmoTimer = 0.18;
+  for (const p of [a, b]) {
+    p.state = PSTATE.CLASHED;
+    p.stateTimer = CFG.clashStun;
+    p.vx = (p === a ? -1 : 1) * (a.x < b.x ? 1 : -1) * CFG.clashKnockback;
+    p.vy = -120;
+  }
+}
+
+function updateCombat() {
+  // choque de espadas: ambos en windup/ataque y a rango
+  const dist = Math.abs(p1.x - p2.x);
+  const bothSwinging =
+    (p1.state === PSTATE.ATTACK || p1.state === PSTATE.WINDUP) &&
+    (p2.state === PSTATE.ATTACK || p2.state === PSTATE.WINDUP);
+  const facingEachOther = (p1.x < p2.x ? p1.facing === 1 && p2.facing === -1 : p1.facing === -1 && p2.facing === 1);
+
+  if (bothSwinging && facingEachOther && dist < CFG.reach * 1.7 &&
+      (p1.state === PSTATE.ATTACK || p2.state === PSTATE.ATTACK)) {
+    doClash(p1, p2);
+    return;
+  }
+
+  // cortes
+  for (const [att, def] of [[p1, p2], [p2, p1]]) {
+    if (!isAttacking(att) || !isVulnerable(def)) continue;
+    const facingTarget = (def.x - att.x) * att.facing > 0;
+    if (!facingTarget) continue;
+    const heightDiff = Math.abs(bodyCenterY(att) - bodyCenterY(def));
+    if (dist < CFG.reach + 16 && heightDiff < 60) {
+      kill(def, att);
+      return;
+    }
+  }
+}
+
+// ---------------- IA ----------------
+function updateAI(p, foe, dt) {
+  if (p.state === PSTATE.DEAD || roundStartTimer > 0) return { left: false, right: false, attack: false, dash: false, jump: false };
+  const out = { left: false, right: false, attack: false, dash: false, jump: false };
+  const dist = Math.abs(p.x - foe.x);
+  const dirToFoe = foe.x > p.x ? 1 : -1;
+
+  // reacción: si el rival telegrafía el ataque, decidir esquivar o chocar
+  if ((foe.state === PSTATE.WINDUP) && dist < CFG.reach * 1.6 && p.aiReact <= 0) {
+    p.aiReact = 0.5;
+    const roll = Math.random();
+    if (roll < 0.38 && p.stamina >= CFG.dashCost) {
+      // esquiva hacia atrás (o lo atraviesa)
+      out.dash = true;
+      p.aiDashDir = Math.random() < 0.6 ? -dirToFoe : dirToFoe;
+    } else if (roll < 0.72 && p.stamina >= CFG.attackCost) {
+      out.attack = true; // intenta el clash o el contracorte
+    }
+    // si no: se come el corte (la CPU no es perfecta)
+  }
+  p.aiReact -= dt;
+
+  p.aiTimer -= dt;
+  if (p.aiTimer <= 0) {
+    p.aiTimer = 0.25 + Math.random() * 0.5;
+    const r = Math.random();
+    if (dist > CFG.reach * 1.5) {
+      p.aiAction = r < 0.75 ? 'approach' : (r < 0.9 ? 'wait' : 'retreat');
+    } else if (dist > CFG.reach * 0.9) {
+      if (r < 0.40 && p.stamina >= CFG.attackCost) p.aiAction = 'strike';
+      else if (r < 0.6) p.aiAction = 'approach';
+      else if (r < 0.8) p.aiAction = 'retreat';
+      else p.aiAction = 'wait';
+    } else {
+      // demasiado cerca
+      p.aiAction = r < 0.55 && p.stamina >= CFG.attackCost ? 'strike' : 'retreat';
+    }
+    // recupera stamina si está corto
+    if (p.stamina < CFG.attackCost + 5) p.aiAction = 'retreat';
+  }
+
+  switch (p.aiAction) {
+    case 'approach': if (dirToFoe > 0) out.right = true; else out.left = true; break;
+    case 'retreat': if (dirToFoe > 0) out.left = true; else out.right = true; break;
+    case 'strike':
+      if (dist < CFG.reach * 1.05) { out.attack = true; p.aiAction = 'wait'; }
+      else { if (dirToFoe > 0) out.right = true; else out.left = true; }
+      break;
+    case 'wait': break;
+  }
+  return out;
+}
+
+// ---------------- Update ----------------
+function readInput(p, isP1, foe, dt) {
+  if (p.isCPU) return updateAI(p, foe, dt);
+  if (isP1) {
+    return {
+      left: keys['KeyA'] || touchState.left,
+      right: keys['KeyD'] || touchState.right,
+      jump: keys['KeyW'] || touchState.jump,
+      attack: keys['KeyF'] || touchState.attack,
+      dash: keys['KeyG'] || touchState.dash,
+    };
+  }
+  return {
+    left: keys['ArrowLeft'], right: keys['ArrowRight'],
+    jump: keys['ArrowUp'],
+    attack: keys['KeyK'],
+    dash: keys['KeyL'],
+  };
+}
+
+function updatePlayer(p, foe, isP1, dt) {
+  const inp = readInput(p, isP1, foe, dt);
+
+  // temporizador de estado
+  if (p.stateTimer > 0) {
+    p.stateTimer -= dt;
+    if (p.stateTimer <= 0) {
+      switch (p.state) {
+        case PSTATE.WINDUP:
+          p.state = PSTATE.ATTACK;
+          p.stateTimer = CFG.attackTime;
+          sfxSlash();
+          // estela del corte
+          const cy = bodyCenterY(p);
+          slashTrails.push({
+            x1: p.x + p.facing * 14, y1: cy - 42,
+            x2: p.x + p.facing * (CFG.reach + 14), y2: cy + 16,
+            life: 0.22, maxLife: 0.22,
+          });
+          p.vx = p.facing * 200; // pequeño paso adelante con el corte
+          break;
+        case PSTATE.ATTACK:
+          p.state = PSTATE.RECOVER;
+          p.stateTimer = CFG.recoverTime;
+          break;
+        case PSTATE.RECOVER:
+        case PSTATE.DASH:
+        case PSTATE.CLASHED:
+          p.state = PSTATE.IDLE;
+          break;
+      }
+    }
+  }
+
+  // movimiento
+  if (p.state === PSTATE.IDLE && roundStartTimer <= 0) {
+    let mv = 0;
+    if (inp.left) mv -= 1;
+    if (inp.right) mv += 1;
+    p.vx = mv * CFG.speed;
+    if (mv !== 0) p.facing = mv;
+    // siempre mira al rival si no se mueve
+    if (mv === 0) p.facing = foe.x > p.x ? 1 : -1;
+    if (inp.jump && p.onGround) { p.vy = CFG.jumpVel; p.onGround = false; }
+    if (inp.attack && !p.attackHeld) startAttack(p);
+    if (inp.dash && !p.dashHeld) {
+      const dir = p.isCPU ? (p.aiDashDir || -p.facing) : (mv !== 0 ? mv : -p.facing);
+      startDash(p, dir);
+    }
+  } else if (p.state === PSTATE.RECOVER || p.state === PSTATE.CLASHED) {
+    p.vx *= Math.pow(0.001, dt); // fricción fuerte
+  }
+  p.attackHeld = inp.attack;
+  p.dashHeld = inp.dash;
+
+  // física
+  if (!p.onGround || p.vy < 0) {
+    p.vy += CFG.gravity * dt;
+  }
+  p.x += p.vx * dt;
+  p.y += p.vy * dt;
+  if (p.y >= GROUND) { p.y = GROUND; p.vy = 0; p.onGround = true; }
+  else p.onGround = false;
+
+  // límites de pantalla
+  if (p.state !== PSTATE.DEAD) {
+    p.x = Math.max(30, Math.min(W - 30, p.x));
+  }
+
+  // stamina
+  if (p.state === PSTATE.IDLE) {
+    p.stamina = Math.min(100, p.stamina + CFG.staminaRegen * dt);
+  }
+
+  if (p.state === PSTATE.DEAD) p.deathT += dt;
+  p.bob += dt * 4;
+}
+
+function update(dt) {
+  // slow motion
+  if (slowmoTimer > 0) {
+    slowmoTimer -= dt;
+    if (slowmoTimer <= 0) timeScale = 1;
+  }
+  const sdt = dt * timeScale;
+
+  if (shake > 0) shake = Math.max(0, shake - dt * 40);
+
+  // pétalos de ambiente
+  for (const pt of petals) {
+    pt.sway += dt;
+    pt.x -= pt.speed * dt;
+    pt.y += Math.sin(pt.sway) * 12 * dt + 8 * dt;
+    if (pt.x < -10) { pt.x = W + 10; pt.y = Math.random() * H * 0.7; }
+    if (pt.y > H) pt.y = -10;
+  }
+
+  // partículas
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const pa = particles[i];
+    pa.life -= sdt;
+    if (pa.life <= 0) { particles.splice(i, 1); continue; }
+    if (pa.gravity) pa.vy += 900 * sdt;
+    pa.x += pa.vx * sdt;
+    pa.y += pa.vy * sdt;
+    if (pa.gravity && pa.y > GROUND + 6) { pa.y = GROUND + 6; pa.vy *= -0.3; pa.vx *= 0.6; }
+  }
+  for (let i = slashTrails.length - 1; i >= 0; i--) {
+    slashTrails[i].life -= sdt;
+    if (slashTrails[i].life <= 0) slashTrails.splice(i, 1);
+  }
+
+  if (scene === 'menu') return;
+
+  if (roundStartTimer > 0) roundStartTimer -= dt;
+
+  if (scene === 'fight' || scene === 'roundEnd') {
+    updatePlayer(p1, p2, true, sdt);
+    updatePlayer(p2, p1, false, sdt);
+    if (scene === 'fight') updateCombat();
+  }
+
+  if (scene === 'roundEnd') {
+    roundMsgTimer -= dt;
+    if (roundMsgTimer <= 0) {
+      if (matchWinner) scene = 'matchEnd';
+      else resetRound();
+    }
+  }
+}
+
+// ---------------- Dibujo ----------------
+function drawBackground() {
+  // cielo nocturno
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#0d0d1f');
+  sky.addColorStop(0.55, '#1c1430');
+  sky.addColorStop(0.8, '#3a1c2e');
+  sky.addColorStop(1, '#1a0e16');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  // luna
+  ctx.save();
+  ctx.fillStyle = '#e8d8c0';
+  ctx.shadowColor = '#e8d8c0';
+  ctx.shadowBlur = 50;
+  ctx.beginPath();
+  ctx.arc(W * 0.72, H * 0.24, 58, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = 'rgba(180,160,140,0.25)';
+  ctx.beginPath(); ctx.arc(W * 0.70, H * 0.22, 9, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(W * 0.75, H * 0.27, 6, 0, Math.PI * 2); ctx.fill();
+
+  // montañas lejanas
+  ctx.fillStyle = '#141022';
+  ctx.beginPath();
+  ctx.moveTo(0, H * 0.72);
+  ctx.lineTo(W * 0.18, H * 0.45);
+  ctx.lineTo(W * 0.38, H * 0.68);
+  ctx.lineTo(W * 0.55, H * 0.5);
+  ctx.lineTo(W * 0.8, H * 0.7);
+  ctx.lineTo(W, H * 0.55);
+  ctx.lineTo(W, H); ctx.lineTo(0, H);
+  ctx.closePath(); ctx.fill();
+
+  // bambú silueta
+  ctx.strokeStyle = '#0c0a14';
+  ctx.lineWidth = 10;
+  for (const bx of [40, 70, 905, 935]) {
+    ctx.beginPath();
+    ctx.moveTo(bx, H);
+    ctx.quadraticCurveTo(bx + (bx < W / 2 ? 18 : -18), H * 0.4, bx + (bx < W / 2 ? 30 : -30), 30);
+    ctx.stroke();
+  }
+
+  // suelo
+  const gr = ctx.createLinearGradient(0, GROUND, 0, H);
+  gr.addColorStop(0, '#241a20');
+  gr.addColorStop(1, '#0e080c');
+  ctx.fillStyle = gr;
+  ctx.fillRect(0, GROUND, W, H - GROUND);
+  ctx.strokeStyle = 'rgba(230,200,170,0.18)';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, GROUND); ctx.lineTo(W, GROUND); ctx.stroke();
+
+  // pétalos
+  for (const pt of petals) {
+    ctx.fillStyle = 'rgba(220,140,160,0.5)';
+    ctx.beginPath();
+    ctx.ellipse(pt.x, pt.y, pt.size, pt.size * 0.5, pt.sway, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// dibuja una katana: gx,gy = empuñadura, a = ángulo de la hoja
+function drawKatana(gx, gy, a, glow) {
+  const dx = Math.cos(a), dy = Math.sin(a);
+  const px = dy, py = -dx;                      // perpendicular (lado del filo)
+  const hbx = gx - dx * 7, hby = gy - dy * 7;   // pomo
+  const tsx = gx + dx * 9, tsy = gy + dy * 9;   // tsuba
+  const L = 64;
+  const tipx = tsx + dx * L, tipy = tsy + dy * L;
+  const mx = tsx + dx * L * 0.55 + px * 3.5;    // control de la curva
+  const my = tsy + dy * L * 0.55 + py * 3.5;
+
+  // mango con vendaje
+  ctx.strokeStyle = '#241a12';
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(hbx, hby); ctx.lineTo(tsx, tsy); ctx.stroke();
+  ctx.strokeStyle = '#8a6a3a';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  for (let i = 1; i <= 3; i++) {
+    const t = i / 4;
+    const wx = hbx + (tsx - hbx) * t, wy = hby + (tsy - hby) * t;
+    ctx.moveTo(wx - px * 2.3, wy - py * 2.3);
+    ctx.lineTo(wx + px * 2.3, wy + py * 2.3);
+  }
+  ctx.stroke();
+  // tsuba dorada
+  ctx.fillStyle = '#a8862a';
+  ctx.beginPath(); ctx.arc(tsx, tsy, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#5e4a16';
+  ctx.beginPath(); ctx.arc(tsx, tsy, 1.7, 0, Math.PI * 2); ctx.fill();
+  // hoja curvada
+  if (glow) { ctx.shadowColor = '#fff'; ctx.shadowBlur = 14; }
+  ctx.strokeStyle = '#cdd6e2';
+  ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(tsx, tsy); ctx.quadraticCurveTo(mx, my, tipx, tipy); ctx.stroke();
+  // filo brillante
+  ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+  ctx.lineWidth = 1.3;
+  ctx.beginPath();
+  ctx.moveTo(tsx + px * 1.3, tsy + py * 1.3);
+  ctx.quadraticCurveTo(mx + px * 1.3, my + py * 1.3, tipx, tipy);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+// brazo con codo calculado: hombro (sx,sy) → mano (hx,hy)
+function drawArm(sx, sy, hx, hy, sleeve, skin) {
+  const dx = hx - sx, dy = hy - sy;
+  const len = Math.hypot(dx, dy) || 1;
+  const k = Math.max(1.5, (30 - len) * 0.55);   // cuánto se dobla el codo
+  const ex = sx + dx / 2 - dy / len * k;
+  const ey = sy + dy / 2 + dx / len * k;
+  ctx.strokeStyle = sleeve;
+  ctx.lineWidth = 6.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.lineTo(hx, hy); ctx.stroke();
+  ctx.fillStyle = skin;
+  ctx.beginPath(); ctx.arc(hx, hy, 3.1, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawSamurai(p) {
+  const f = p.facing;
+  const pal = p.pal;
+  const dead = p.state === PSTATE.DEAD;
+  const bob = p.onGround && !dead ? Math.sin(p.bob) * 1.5 : 0;
+
+  // sombra en el suelo
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.beginPath();
+  ctx.ellipse(p.x, p.y + 3, dead ? 36 : 23, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // katana caída junto al cuerpo
+  if (dead && p.onGround) {
+    ctx.save();
+    ctx.translate(p.x + f * 30, GROUND - 4);
+    ctx.scale(f, 1);
+    drawKatana(0, 0, -0.06, false);
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.translate(p.x, p.y + bob);
+  if (dead) {
+    const fall = Math.min(1, p.deathT * 2.8);
+    ctx.rotate(-f * fall * 1.45);
+    ctx.translate(0, fall * 5);
+  }
+  ctx.scale(f, 1);   // todo lo de abajo se dibuja mirando a la derecha
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // ---- pose según estado ----
+  // grip = posición de las manos · ang = ángulo de la hoja (0 = al frente)
+  let grip = { x: 16, y: -46 + Math.sin(p.bob * 1.7) * 1.2 };
+  let ang = -0.62;
+  let footF = 12, footB = -11, lean = 0, headY = -66;
+  switch (p.state) {
+    case PSTATE.WINDUP: {
+      const k = 1 - Math.max(0, p.stateTimer / CFG.windupTime);
+      grip = { x: 3 - k * 5, y: -60 - k * 9 };   // alza la katana sobre la cabeza
+      ang = -1.85 - k * 0.55;
+      lean = -3; footF = 10; footB = -14;
+      break;
+    }
+    case PSTATE.ATTACK:
+      grip = { x: 26, y: -46 }; ang = 0.12;      // extensión total al frente
+      lean = 7; footF = 25; footB = -19; headY = -63;
+      break;
+    case PSTATE.RECOVER:
+      grip = { x: 20, y: -36 }; ang = 0.72;      // hoja baja tras el corte
+      lean = 4; footF = 18; footB = -14;
+      break;
+    case PSTATE.CLASHED:
+      grip = { x: 11, y: -52 }; ang = -1.25;     // bloqueo alto, echado atrás
+      lean = -6; footF = 8; footB = -16; headY = -64;
+      break;
+    case PSTATE.DASH:
+      grip = { x: 4, y: -42 }; ang = -2.55;      // hoja recogida, cuerpo lanzado
+      lean = 9; footF = 21; footB = -21; headY = -61;
+      break;
+    case PSTATE.DEAD:
+      grip = null;                                // suelta la katana
+      footF = 13; footB = -12;
+      break;
+  }
+
+  const hipY = -34, shoulderY = -56;
+
+  // líneas de velocidad del dash
+  if (p.state === PSTATE.DASH) {
+    ctx.strokeStyle = 'rgba(170,195,255,0.45)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < 4; i++) {
+      const yy = -14 - i * 13;
+      ctx.moveTo(-46 - i * 6, yy);
+      ctx.lineTo(-8, yy);
+    }
+    ctx.stroke();
+  }
+
+  // ---- hakama (pantalón ancho) ----
+  ctx.fillStyle = pal.hakamaDark;
+  ctx.beginPath();
+  ctx.moveTo(-6, hipY); ctx.lineTo(3, hipY);
+  ctx.lineTo(footB + 7, -2); ctx.lineTo(footB - 7, -2);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = pal.hakama;
+  ctx.beginPath();
+  ctx.moveTo(-4, hipY); ctx.lineTo(7, hipY);
+  ctx.lineTo(footF + 8, -2); ctx.lineTo(footF - 6, -2);
+  ctx.closePath(); ctx.fill();
+  // pliegues
+  ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(2, hipY + 5); ctx.lineTo(footF * 0.55 + 2, -7);
+  ctx.moveTo(-2, hipY + 5); ctx.lineTo(footB * 0.55 - 2, -7);
+  ctx.stroke();
+  // sandalias
+  ctx.fillStyle = '#2a201a';
+  ctx.beginPath(); ctx.ellipse(footF + 2, -2, 7, 2.8, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(footB - 1, -2, 6, 2.8, 0, 0, Math.PI * 2); ctx.fill();
+
+  // ---- torso (kimono) ----
+  ctx.fillStyle = pal.kimono;
+  ctx.beginPath();
+  ctx.moveTo(-8, hipY + 1);
+  ctx.lineTo(8, hipY + 1);
+  ctx.lineTo(lean + 9, shoulderY - 2);
+  ctx.lineTo(lean - 9, shoulderY - 2);
+  ctx.closePath(); ctx.fill();
+  // sombreado de la espalda
+  ctx.fillStyle = 'rgba(0,0,0,0.16)';
+  ctx.beginPath();
+  ctx.moveTo(-8, hipY + 1); ctx.lineTo(-2, hipY + 1);
+  ctx.lineTo(lean - 3, shoulderY - 2); ctx.lineTo(lean - 9, shoulderY - 2);
+  ctx.closePath(); ctx.fill();
+  // cuello en V
+  ctx.strokeStyle = pal.kimonoDark;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(lean - 5, shoulderY - 1);
+  ctx.lineTo(lean + 3, -44);
+  ctx.lineTo(lean + 7, shoulderY + 1);
+  ctx.stroke();
+  // obi (faja)
+  ctx.fillStyle = pal.obi;
+  ctx.fillRect(-8, hipY - 4, 16, 6);
+  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  ctx.fillRect(-8, hipY - 4, 16, 2);
+
+  // ---- cabeza ----
+  const hx = lean + 3, hy = headY;
+  // cuello
+  ctx.strokeStyle = pal.skin;
+  ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(lean + 1, shoulderY - 1); ctx.lineTo(hx, hy + 6); ctx.stroke();
+  // cara
+  ctx.fillStyle = pal.skin;
+  ctx.beginPath(); ctx.arc(hx, hy, 8, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  ctx.beginPath(); ctx.arc(hx - 2, hy + 1, 7, Math.PI * 0.5, Math.PI * 1.5); ctx.fill();
+  // pelo recogido
+  ctx.fillStyle = pal.hair;
+  ctx.beginPath();
+  ctx.arc(hx - 1, hy - 1.5, 8.3, Math.PI * 0.85, Math.PI * 2.0);
+  ctx.closePath(); ctx.fill();
+  // moño (chonmage)
+  ctx.beginPath(); ctx.ellipse(hx - 4, hy - 10, 4.5, 2.6, -0.5, 0, Math.PI * 2); ctx.fill();
+  // hachimaki (cinta) con cola al viento
+  ctx.strokeStyle = pal.accent;
+  ctx.lineWidth = 3.5;
+  ctx.beginPath();
+  ctx.moveTo(hx - 8.3, hy - 3);
+  ctx.lineTo(hx + 8.3, hy - 3);
+  ctx.stroke();
+  const flut = Math.sin(p.bob * 2.3);
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(hx - 8, hy - 3);
+  ctx.quadraticCurveTo(hx - 15, hy - 1 + flut, hx - 20, hy + 3 + flut * 2.5);
+  ctx.stroke();
+  // ojo y ceja
+  ctx.strokeStyle = '#1a1208';
+  if (!dead) {
+    ctx.fillStyle = '#1a1208';
+    ctx.fillRect(hx + 3, hy - 1.5, 2.6, 1.8);
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(hx + 2.5, hy - 4); ctx.lineTo(hx + 6.5, hy - 3); ctx.stroke();
+  } else {
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(hx + 2.5, hy - 2.5); ctx.lineTo(hx + 6, hy + 0.5);
+    ctx.moveTo(hx + 6, hy - 2.5); ctx.lineTo(hx + 2.5, hy + 0.5);
+    ctx.stroke();
+  }
+
+  // ---- brazos y katana (agarre a dos manos) ----
+  if (grip) {
+    const dxg = Math.cos(ang), dyg = Math.sin(ang);
+    const farX = grip.x - dxg * 6, farY = grip.y - dyg * 6;
+    drawArm(lean - 4, shoulderY + 3, farX, farY, pal.kimonoDark, pal.skin);
+    drawKatana(grip.x, grip.y, ang, p.state === PSTATE.ATTACK);
+    drawArm(lean + 5, shoulderY + 2, grip.x, grip.y, pal.kimono, pal.skin);
+  } else {
+    // muerto: brazos caídos
+    drawArm(lean - 4, shoulderY + 3, -10, -38, pal.kimonoDark, pal.skin);
+    drawArm(lean + 5, shoulderY + 2, 12, -36, pal.kimono, pal.skin);
+  }
+
+  ctx.restore();
+}
+
+function drawBars() {
+  const barW = 330, barH = 16, m = 24;
+  for (const [p, x, align] of [[p1, m, 1], [p2, W - m - barW, -1]]) {
+    // fondo
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(x - 3, m - 3, barW + 6, barH + 6);
+    // stamina
+    const pct = p.stamina / 100;
+    const grad = ctx.createLinearGradient(x, 0, x + barW, 0);
+    if (align === 1) {
+      grad.addColorStop(0, p.accent);
+      grad.addColorStop(1, '#e8c050');
+    } else {
+      grad.addColorStop(0, '#e8c050');
+      grad.addColorStop(1, p.accent);
+    }
+    ctx.fillStyle = grad;
+    if (align === 1) ctx.fillRect(x, m, barW * pct, barH);
+    else ctx.fillRect(x + barW * (1 - pct), m, barW * pct, barH);
+    // borde
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x - 3, m - 3, barW + 6, barH + 6);
+
+    // nombre
+    ctx.fillStyle = '#e8e0d0';
+    ctx.font = 'bold 13px "Courier New", monospace';
+    ctx.textAlign = align === 1 ? 'left' : 'right';
+    ctx.fillText(p.name, align === 1 ? x : x + barW, m + barH + 17);
+
+    // victorias (círculos)
+    for (let i = 0; i < WIN_ROUNDS; i++) {
+      const cx = align === 1 ? x + 90 + i * 20 : x + barW - 90 - i * 20;
+      ctx.beginPath();
+      ctx.arc(cx, m + barH + 13, 6, 0, Math.PI * 2);
+      ctx.fillStyle = i < p.wins ? '#e8c050' : 'rgba(255,255,255,0.15)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+  ctx.textAlign = 'left';
+}
+
+function drawTouchControls() {
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (const b of TBTN) {
+    const on = touchState[b.id];
+    ctx.globalAlpha = on ? 0.6 : 0.25;
+    ctx.fillStyle = on ? '#e8c050' : '#ffffff';
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = on ? 0.9 : 0.5;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#10101a';
+    ctx.font = `bold ${Math.round(b.r * 0.75)}px sans-serif`;
+    ctx.fillText(b.label, b.x, b.y + 2);
+  }
+  ctx.restore();
+}
+
+function drawCenterText(txt, size, y, color = '#e8e0d0', glow = '#b03030') {
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `bold ${size}px "Courier New", monospace`;
+  ctx.shadowColor = glow;
+  ctx.shadowBlur = 24;
+  ctx.fillStyle = color;
+  ctx.fillText(txt, W / 2, y);
+  ctx.restore();
+}
+
+function drawMenu(t) {
+  drawBackground();
+  // dos samuráis decorativos
+  const demo1 = makePlayer(W * 0.3, 1, PAL1, false, '');
+  const demo2 = makePlayer(W * 0.7, -1, PAL2, false, '');
+  demo1.bob = t * 2; demo2.bob = t * 2 + 2;
+  drawSamurai(demo1);
+  drawSamurai(demo2);
+
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(0, 0, W, H);
+
+  drawCenterText('刀', 90, H * 0.22, '#b03030', '#000');
+  drawCenterText('K A T A N A', 52, H * 0.38);
+  drawCenterText('duelo de samuráis — un corte decide', 16, H * 0.45, '#c0b8a8', '#000');
+
+  const opts = ['1 JUGADOR  (vs CPU)', '2 JUGADORES'];
+  for (let i = 0; i < 2; i++) {
+    const sel = menuSel === i;
+    const blink = sel && Math.sin(t * 6) > -0.2;
+    drawCenterText(
+      (sel ? '» ' : '  ') + opts[i] + (sel ? ' «' : '  '),
+      24, H * 0.58 + i * 42,
+      blink ? '#e8c050' : (sel ? '#e8c050' : '#888'),
+      sel ? '#b03030' : 'transparent'
+    );
+  }
+
+  if (TOUCH) {
+    drawCenterText('toca una opción para empezar', 16, H * 0.78, '#999', 'transparent');
+    ctx.textAlign = 'center';
+    ctx.font = '13px "Courier New", monospace';
+    ctx.fillStyle = '#776';
+    ctx.fillText('◀ ▶ mover · ▲ saltar · 斬 cortar · 風 esquivar', W / 2, H * 0.86);
+    ctx.textAlign = 'left';
+  } else {
+    drawCenterText('W/S para elegir — ENTER para empezar', 14, H * 0.78, '#999', 'transparent');
+    ctx.textAlign = 'center';
+    ctx.font = '13px "Courier New", monospace';
+    ctx.fillStyle = '#776';
+    ctx.fillText('J1:  A/D mover · W saltar · F cortar · G esquivar', W / 2, H * 0.86);
+    ctx.fillText('J2:  ←/→ mover · ↑ saltar · K cortar · L esquivar', W / 2, H * 0.90);
+    ctx.textAlign = 'left';
+  }
+}
+
+function draw(t) {
+  ctx.save();
+  if (shake > 0) {
+    ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+  }
+
+  if (scene === 'menu') {
+    drawMenu(t);
+    ctx.restore();
+    return;
+  }
+
+  drawBackground();
+
+  // estelas de corte
+  for (const s of slashTrails) {
+    const a = s.life / s.maxLife;
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,255,255,${a * 0.9})`;
+    ctx.lineWidth = 3 + a * 5;
+    ctx.lineCap = 'round';
+    ctx.shadowColor = '#fff';
+    ctx.shadowBlur = 16 * a;
+    ctx.beginPath();
+    ctx.moveTo(s.x1, s.y1);
+    ctx.lineTo(s.x2, s.y2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  drawSamurai(p1);
+  drawSamurai(p2);
+
+  // partículas
+  for (const pa of particles) {
+    ctx.globalAlpha = Math.max(0, pa.life / pa.maxLife);
+    ctx.fillStyle = pa.color;
+    ctx.fillRect(pa.x - pa.size / 2, pa.y - pa.size / 2, pa.size, pa.size);
+  }
+  ctx.globalAlpha = 1;
+
+  drawBars();
+
+  // cuenta regresiva de ronda
+  if (roundStartTimer > 0 && scene === 'fight') {
+    if (roundStartTimer > 0.7) {
+      drawCenterText(`RONDA ${p1.wins + p2.wins + 1}`, 40, H * 0.4);
+      drawCenterText('preparados...', 18, H * 0.48, '#c0b8a8', 'transparent');
+    } else {
+      drawCenterText('¡CORTEN!', 56, H * 0.44, '#e8c050');
+    }
+  }
+
+  // mensaje de ronda
+  if (scene === 'roundEnd' && roundMsg) {
+    drawCenterText(roundMsg, 54, H * 0.42, '#fff', '#b03030');
+    const winner = p1.state === PSTATE.DEAD ? p2 : p1;
+    drawCenterText(`${winner.name} gana la ronda`, 20, H * 0.5, '#e8c050', 'transparent');
+  }
+
+  // fin del combate
+  if (scene === 'matchEnd' && matchWinner) {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, W, H);
+    drawCenterText('勝 利', 70, H * 0.32, '#b03030', '#000');
+    drawCenterText(`${matchWinner.name} VENCE`, 44, H * 0.48);
+    drawCenterText(`${matchWinner.wins} — ${matchWinner === p1 ? p2.wins : p1.wins}`, 26, H * 0.56, '#e8c050', 'transparent');
+    if (Math.sin(t * 4) > -0.3) {
+      drawCenterText(TOUCH ? 'toca para volver al menú' : 'ENTER para volver al menú', 16, H * 0.7, '#c0b8a8', 'transparent');
+    }
+  }
+
+  // botones táctiles
+  if (TOUCH && (scene === 'fight' || scene === 'roundEnd')) {
+    drawTouchControls();
+  }
+
+  // viñeta
+  const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, H * 0.95);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.5)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.restore();
+}
+
+// ---------------- Bucle principal ----------------
+function loop(ts) {
+  const t = ts / 1000;
+  let dt = Math.min(0.033, t - lastTime || 0.016);
+  lastTime = t;
+  update(dt);
+  draw(t);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
