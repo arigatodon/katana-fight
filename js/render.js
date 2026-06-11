@@ -14,6 +14,9 @@ function drawBackground() {
     templo:  ['#160e1e', '#241430', '#42203a', '#1a0e16'],
     mercado: ['#1e1410', '#32221a', '#4c3024', '#1e140e'],
     volcan:  ['#1c0a0a', '#301010', '#521a10', '#200c08'],
+    playa:   ['#1a64c0', '#3a82d4', '#74aade', '#a8c6e4'],   // día pleno en la costa
+    nieve:   ['#0c1422', '#16243a', '#2a3c54', '#0e1620'],
+    barco:   ['#080e1c', '#102032', '#1a3448', '#0a1018'],
   };
   const cs = skies[stage.id] || skies.dojo;
   sky.addColorStop(0, cs[0]); sky.addColorStop(0.55, cs[1]);
@@ -21,24 +24,73 @@ function drawBackground() {
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, W, H);
 
-  // luna
+  // astro: sol de día en el balneario, luna en el resto
   ctx.save();
-  ctx.fillStyle = stage.id === 'volcan' ? '#e8a060' : '#e8d8c0';
-  ctx.shadowColor = ctx.fillStyle;
-  ctx.shadowBlur = 50;
-  ctx.beginPath();
-  ctx.arc(W * 0.72, H * 0.24, 58, 0, Math.PI * 2);
-  ctx.fill();
+  if (stage.id === 'playa') {
+    ctx.fillStyle = '#fff8dc';
+    ctx.shadowColor = '#ffe890';
+    ctx.shadowBlur = 70;
+    ctx.beginPath();
+    ctx.arc(W * 0.18, H * 0.16, 44, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.fillStyle = stage.id === 'volcan' ? '#e8a060' : '#e8d8c0';
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.shadowBlur = 50;
+    ctx.beginPath();
+    ctx.arc(W * 0.72, H * 0.24, 58, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 
-  // montañas
-  ctx.fillStyle = 'rgba(10,8,18,0.8)';
-  ctx.beginPath();
-  ctx.moveTo(0, H * 0.72);
-  ctx.lineTo(W * 0.18, H * 0.45); ctx.lineTo(W * 0.38, H * 0.68);
-  ctx.lineTo(W * 0.55, H * 0.5);  ctx.lineTo(W * 0.8, H * 0.7);
-  ctx.lineTo(W, H * 0.55); ctx.lineTo(W, H); ctx.lineTo(0, H);
-  ctx.closePath(); ctx.fill();
+  // fondo lejano: cerros costeros, mar abierto o montañas nocturnas
+  if (stage.id === 'playa') {
+    ctx.fillStyle = 'rgba(70,110,150,0.5)';
+    ctx.beginPath();
+    ctx.moveTo(0, H * 0.5);
+    ctx.lineTo(W * 0.2, H * 0.34); ctx.lineTo(W * 0.45, H * 0.48);
+    ctx.lineTo(W * 0.7, H * 0.38); ctx.lineTo(W, H * 0.5);
+    ctx.lineTo(W, H); ctx.lineTo(0, H);
+    ctx.closePath(); ctx.fill();
+  } else if (stage.id === 'barco') {
+    // mar hasta el horizonte, con olas que avanzan
+    ctx.fillStyle = '#0c2236';
+    ctx.fillRect(0, H * 0.55, W, H * 0.45);
+    ctx.strokeStyle = 'rgba(140,190,220,0.25)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 5; i++) {
+      const wy = H * 0.6 + i * 26;
+      ctx.beginPath();
+      for (let x = 0; x <= W; x += 24) {
+        const yy = wy + Math.sin(x * 0.025 + gTime * (1.2 + i * 0.2) + i * 2) * 4;
+        if (x === 0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+      }
+      ctx.stroke();
+    }
+  } else if (stage.id === 'nieve') {
+    for (const [a, h1, h2] of [[0.35, 0.55, 0.3], [0.7, 0.42, 0.52]]) {
+      ctx.fillStyle = `rgba(190,205,225,${0.18 + a * 0.1})`;
+      ctx.beginPath();
+      ctx.moveTo(W * (a - 0.35), H);
+      ctx.lineTo(W * a, H * h2);
+      ctx.lineTo(W * (a + 0.35), H);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(240,246,252,0.55)';
+      ctx.beginPath();
+      ctx.moveTo(W * (a - 0.07), H * (h2 + 0.12));
+      ctx.lineTo(W * a, H * h2);
+      ctx.lineTo(W * (a + 0.07), H * (h2 + 0.12));
+      ctx.closePath(); ctx.fill();
+    }
+  } else {
+    ctx.fillStyle = 'rgba(10,8,18,0.8)';
+    ctx.beginPath();
+    ctx.moveTo(0, H * 0.72);
+    ctx.lineTo(W * 0.18, H * 0.45); ctx.lineTo(W * 0.38, H * 0.68);
+    ctx.lineTo(W * 0.55, H * 0.5);  ctx.lineTo(W * 0.8, H * 0.7);
+    ctx.lineTo(W, H * 0.55); ctx.lineTo(W, H); ctx.lineTo(0, H);
+    ctx.closePath(); ctx.fill();
+  }
 
   // elementos por escenario (detrás de los luchadores)
   if (stage.id === 'dojo') {
@@ -101,6 +153,71 @@ function drawBackground() {
         life: 1.2, maxLife: 1.2, color: '#ff8030', size: 3, gravity: true,
       });
     }
+  } else if (stage.id === 'playa') {
+    drawBalneario();
+  } else if (stage.id === 'nieve') {
+    // pinos nevados a los lados
+    for (const [px, s] of [[60, 1], [130, 0.7], [W - 70, 1.1], [W - 150, 0.75]]) {
+      ctx.fillStyle = '#0e1a26';
+      for (let i = 0; i < 3; i++) {
+        const ty = GROUND - 150 * s + i * 44 * s;
+        ctx.beginPath();
+        ctx.moveTo(px - (26 + i * 12) * s, ty + 40 * s);
+        ctx.lineTo(px, ty);
+        ctx.lineTo(px + (26 + i * 12) * s, ty + 40 * s);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(235,242,250,0.8)';
+      for (let i = 0; i < 3; i++) {
+        const ty = GROUND - 150 * s + i * 44 * s;
+        ctx.beginPath();
+        ctx.moveTo(px - (12 + i * 6) * s, ty + 16 * s);
+        ctx.lineTo(px, ty);
+        ctx.lineTo(px + (12 + i * 6) * s, ty + 16 * s);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    // nevada constante (visual, sin estado)
+    ctx.fillStyle = 'rgba(240,246,255,0.7)';
+    for (let i = 0; i < 60; i++) {
+      const sx = ((i * 157 + gTime * (18 + (i % 5) * 9)) % (W + 20)) - 10;
+      const sy = (i * 211 + gTime * (46 + (i % 7) * 14)) % H;
+      ctx.fillRect(sx, sy, 2, 2);
+    }
+  } else if (stage.id === 'barco') {
+    // estrellas
+    ctx.fillStyle = 'rgba(220,230,255,0.8)';
+    for (let i = 0; i < 36; i++) {
+      const tw = 0.3 + (Math.sin(gTime * 2 + i * 1.7) + 1) * 0.35;
+      ctx.globalAlpha = tw;
+      ctx.fillRect((i * 173) % W, (i * 97) % (H * 0.45), 2, 2);
+    }
+    ctx.globalAlpha = 1;
+    // mástil, verga y vela de junco recogida
+    const rock = Math.sin(gTime * 0.7) * 0.012;     // el barco cabecea
+    ctx.save();
+    ctx.translate(W * 0.32, GROUND);
+    ctx.rotate(rock);
+    ctx.fillStyle = '#241a10';
+    ctx.fillRect(-7, -330, 14, 330);
+    ctx.fillRect(-120, -310, 240, 8);
+    ctx.fillStyle = '#4a3824';
+    for (let i = 0; i < 4; i++) ctx.fillRect(-100 + i * 8, -300 + i * 26, 200 - i * 16, 18);
+    ctx.strokeStyle = 'rgba(180,150,100,0.4)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, -330); ctx.lineTo(-W * 0.22, 0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -330); ctx.lineTo(W * 0.24, 0); ctx.stroke();
+    ctx.restore();
+    // farol que se mece
+    const fx = W * 0.57, fy = H * 0.34, sw = Math.sin(gTime * 1.4) * 10;
+    ctx.strokeStyle = '#2a2014'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(fx, fy - 60); ctx.lineTo(fx + sw, fy); ctx.stroke();
+    ctx.save();
+    ctx.fillStyle = '#ffb850';
+    ctx.shadowColor = '#ff9830';
+    ctx.shadowBlur = 24;
+    ctx.beginPath(); ctx.arc(fx + sw, fy + 8, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
   }
 
   // suelo
@@ -126,19 +243,39 @@ function drawBackground() {
       dojo: ['#241a20', '#0e080c'], bambu: ['#16241a', '#080e0a'],
       tejado: ['#262030', '#100c16'], templo: ['#221a26', '#0e0a10'],
       mercado: ['#2e2218', '#140e08'], volcan: ['#2a1410', '#140806'],
+      playa: ['#d8c098', '#9a8058'], nieve: ['#e8eef6', '#a8b4c8'],
+      barco: ['#3e2e1c', '#1a1208'],
     };
     const gc = grounds[stage.id] || grounds.dojo;
     const gr = ctx.createLinearGradient(0, GROUND, 0, H);
     gr.addColorStop(0, gc[0]); gr.addColorStop(1, gc[1]);
     ctx.fillStyle = gr;
     ctx.fillRect(0, GROUND, W, H - GROUND);
-    ctx.strokeStyle = 'rgba(230,200,170,0.18)';
+    ctx.strokeStyle = stage.id === 'playa' || stage.id === 'nieve'
+      ? 'rgba(90,70,50,0.25)' : 'rgba(230,200,170,0.18)';
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(0, GROUND); ctx.lineTo(W, GROUND); ctx.stroke();
     if (stage.id === 'tejado') {
       ctx.strokeStyle = 'rgba(120,100,140,0.3)';
       for (let x = 0; x < W; x += 48) {
         ctx.beginPath(); ctx.moveTo(x, GROUND); ctx.lineTo(x + 20, H); ctx.stroke();
+      }
+    } else if (stage.id === 'playa') {
+      // conchitas y piedras sobre la arena
+      ctx.fillStyle = 'rgba(120,90,60,0.4)';
+      for (let i = 0; i < 36; i++) {
+        ctx.fillRect((i * 193) % W, GROUND + 8 + (i * 71) % (H - GROUND - 14), 3, 2);
+      }
+    } else if (stage.id === 'barco') {
+      // tablones de la cubierta
+      ctx.strokeStyle = 'rgba(20,12,4,0.5)';
+      for (let y = GROUND + 12; y < H; y += 16) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      }
+    } else if (stage.id === 'nieve') {
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      for (let i = 0; i < 24; i++) {
+        ctx.fillRect((i * 211) % W, GROUND + 6 + (i * 53) % (H - GROUND - 10), 5, 2);
       }
     }
   }
@@ -161,15 +298,156 @@ function drawBackground() {
     }
   }
 
-  // pétalos
+  // pétalos (cada costa tiene los suyos: plumas, copos, espuma…)
   for (const pt of petals) {
     ctx.fillStyle = stage.id === 'volcan' ? 'rgba(255,150,60,0.5)'
                   : stage.id === 'bambu' ? 'rgba(140,200,120,0.5)'
+                  : stage.id === 'playa' ? 'rgba(252,252,244,0.75)'
+                  : stage.id === 'nieve' ? 'rgba(240,246,255,0.8)'
+                  : stage.id === 'barco' ? 'rgba(170,210,235,0.45)'
                   : 'rgba(220,140,160,0.5)';
     ctx.beginPath();
     ctx.ellipse(pt.x, pt.y, pt.size, pt.size * 0.5, pt.sway, 0, Math.PI * 2);
     ctx.fill();
   }
+}
+
+// el balneario de la foto: casona de madera carcomida, edificio
+// morado, palmeras, gaviotas, y la baranda blanca sobre el muro
+function drawBalneario() {
+  const base = GROUND - 38;            // nivel de la costanera (tras el muro)
+
+  // edificio blanco a la izquierda con letrero rojo
+  ctx.fillStyle = '#d8d4c8';
+  ctx.fillRect(8, base - 150, 152, 150);
+  ctx.fillStyle = '#a83030';
+  ctx.fillRect(8, base - 98, 72, 16);
+  ctx.fillStyle = '#5a6a78';
+  ctx.fillRect(26, base - 132, 30, 24);
+  ctx.fillRect(72, base - 132, 30, 24);
+
+  // edificio morado (derecha) con piso superior blanco
+  ctx.fillStyle = '#e4e0d8';
+  ctx.fillRect(520, base - 212, 220, 64);
+  ctx.fillStyle = '#1c1a20';
+  ctx.fillRect(560, base - 196, 26, 34); ctx.fillRect(640, base - 196, 26, 34);
+  ctx.fillStyle = '#a44aac';
+  ctx.fillRect(510, base - 150, 240, 150);
+  for (const [vx, vy] of [[534, -126], [596, -126], [658, -126], [534, -64], [658, -64]]) {
+    ctx.fillStyle = '#f0ece4';
+    ctx.fillRect(vx, base + vy, 36, 44);
+    ctx.fillStyle = '#2a2030';
+    ctx.fillRect(vx + 4, base + vy + 4, 28, 36);
+  }
+  ctx.fillStyle = '#e8c050';                       // letrero
+  ctx.fillRect(596, base - 70, 86, 18);
+
+  // edificio celeste al fondo derecho
+  ctx.fillStyle = '#c8d4d8';
+  ctx.fillRect(760, base - 170, 200, 170);
+  ctx.fillStyle = '#3a4a52';
+  for (let i = 0; i < 3; i++) ctx.fillRect(782 + i * 62, base - 144, 32, 40);
+
+  // LA CASONA: cuerpo de madera, torre con aguja roja y torre mirador
+  const wx = 190;
+  ctx.fillStyle = '#7a6a52';
+  ctx.fillRect(wx, base - 200, 250, 200);
+  ctx.fillStyle = '#695a44';
+  for (let y = base - 192; y < base; y += 14) ctx.fillRect(wx, y, 250, 3);
+  ctx.fillStyle = '#564a38';                       // techo hundido
+  ctx.beginPath();
+  ctx.moveTo(wx - 14, base - 196);
+  ctx.lineTo(wx + 90, base - 266);
+  ctx.lineTo(wx + 150, base - 250);
+  ctx.lineTo(wx + 264, base - 196);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#71624c';                       // torre izquierda
+  ctx.fillRect(wx + 20, base - 278, 56, 82);
+  ctx.fillStyle = '#a83028';                       // aguja roja
+  ctx.beginPath();
+  ctx.moveTo(wx + 12, base - 278); ctx.lineTo(wx + 48, base - 344); ctx.lineTo(wx + 84, base - 278);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#84745c';                       // torre mirador
+  ctx.fillRect(wx + 170, base - 288, 74, 288);
+  ctx.fillStyle = '#73644e';
+  for (let y = base - 280; y < base; y += 14) ctx.fillRect(wx + 170, y, 74, 3);
+  ctx.fillStyle = '#4e4234';
+  ctx.beginPath();
+  ctx.moveTo(wx + 156, base - 286); ctx.lineTo(wx + 207, base - 336); ctx.lineTo(wx + 258, base - 286);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#241c12';                       // ventanas vacías
+  ctx.fillRect(wx + 34, base - 252, 28, 32);
+  ctx.fillRect(wx + 52, base - 162, 34, 44);
+  ctx.fillRect(wx + 112, base - 170, 34, 44);
+  ctx.fillRect(wx + 184, base - 248, 18, 30); ctx.fillRect(wx + 212, base - 248, 18, 30);
+  ctx.fillRect(wx + 184, base - 178, 18, 30); ctx.fillRect(wx + 212, base - 178, 18, 30);
+  ctx.fillRect(wx + 30, base - 82, 40, 58);
+  ctx.fillRect(wx + 112, base - 82, 40, 58);
+
+  // palmeras que se mecen
+  for (const [px, s, ph] of [[480, 1, 0], [790, 0.8, 2.2]]) {
+    const sway = Math.sin(gTime * 0.9 + ph) * 5;
+    ctx.strokeStyle = '#6a5638';
+    ctx.lineWidth = 9 * s;
+    ctx.beginPath();
+    ctx.moveTo(px, base + 30);
+    ctx.quadraticCurveTo(px + 6, base - 50 * s, px + sway, base - 105 * s);
+    ctx.stroke();
+    ctx.strokeStyle = '#2e6a34';
+    ctx.lineWidth = 5 * s;
+    for (let i = 0; i < 6; i++) {
+      const a = -Math.PI / 2 + (i - 2.5) * 0.55;
+      const tipx = px + sway + Math.cos(a) * 52 * s;
+      const tipy = base - 105 * s + Math.sin(a) * 40 * s + 16 * s;
+      ctx.beginPath();
+      ctx.moveTo(px + sway, base - 105 * s);
+      ctx.quadraticCurveTo(px + sway + Math.cos(a) * 28 * s, base - 105 * s + Math.sin(a) * 30 * s - 12 * s, tipx, tipy);
+      ctx.stroke();
+    }
+  }
+
+  // gaviotas
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 3; i++) {
+    const gx = ((gTime * (34 + i * 13) + i * 330) % (W + 120)) - 60;
+    const gy = 64 + i * 34 + Math.sin(gTime * 2 + i * 3) * 9;
+    const flap = Math.sin(gTime * 7 + i * 2) * 5;
+    ctx.beginPath();
+    ctx.moveTo(gx - 10, gy - flap);
+    ctx.quadraticCurveTo(gx - 4, gy + 3, gx, gy);
+    ctx.quadraticCurveTo(gx + 4, gy + 3, gx + 10, gy - flap);
+    ctx.stroke();
+  }
+
+  // muro de piedra de la costanera, con su desagüe
+  const muroY = GROUND - 38;
+  ctx.fillStyle = '#8a7c66';
+  ctx.fillRect(0, muroY, W, 38);
+  ctx.strokeStyle = 'rgba(40,32,22,0.45)';
+  ctx.lineWidth = 2;
+  for (let x = -20; x < W; x += 46) {
+    ctx.strokeRect(x + (Math.abs(Math.floor(x / 46)) % 2) * 14, muroY + 4, 40, 13);
+    ctx.strokeRect(x, muroY + 21, 40, 13);
+  }
+  ctx.fillStyle = '#181208';                       // túnel de desagüe
+  ctx.beginPath();
+  ctx.moveTo(58, GROUND);
+  ctx.lineTo(58, muroY + 18);
+  ctx.arc(94, muroY + 18, 36, Math.PI, 0);
+  ctx.lineTo(130, GROUND);
+  ctx.closePath(); ctx.fill();
+
+  // baranda blanca: el pasamanos es la plataforma (BARANDA_Y)
+  ctx.fillStyle = '#ecece4';
+  ctx.fillRect(BARANDA_X0 - 8, BARANDA_Y, BARANDA_X1 - BARANDA_X0 + 16, 7);
+  for (let x = BARANDA_X0; x <= BARANDA_X1; x += 26) {
+    ctx.fillRect(x - 3, BARANDA_Y + 7, 6, muroY - BARANDA_Y - 11);
+  }
+  ctx.fillRect(BARANDA_X0 - 8, muroY - 5, BARANDA_X1 - BARANDA_X0 + 16, 5);
+  ctx.fillStyle = '#e0e0d4';                       // pilares de los extremos
+  ctx.fillRect(BARANDA_X0 - 18, BARANDA_Y - 4, 14, muroY - BARANDA_Y + 4);
+  ctx.fillRect(BARANDA_X1 + 4, BARANDA_Y - 4, 14, muroY - BARANDA_Y + 4);
 }
 
 // bambú en primer plano (obstruye la vista)
@@ -554,6 +832,7 @@ function drawTouchControls() {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   for (const b of TBTN) {
+    if (b.id === 'down' && stage.id !== 'playa') continue;   // ▼ solo sirve en el balneario
     if (b.id === 'feint' && destino.id === 'honor') ctx.globalAlpha = 0.1;
     else ctx.globalAlpha = touchState[b.id] ? 0.6 : 0.25;
     ctx.fillStyle = touchState[b.id] ? '#e8c050' : '#ffffff';

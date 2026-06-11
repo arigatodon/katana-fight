@@ -71,7 +71,12 @@ function updatePlayer(p, foe, isP1, dt) {
     if (inp.right) mv += 1;
     let spd = p.speed;
     if (destino.id === 'furia') spd *= 1.2;
-    p.vx = mv * spd;
+    if (stage.id === 'playa' && p.y >= GROUND - 1) spd *= 0.7;   // la arena frena
+    if (stage.id === 'nieve' && p.onGround) {
+      p.vx += (mv * spd - p.vx) * Math.min(1, dt * 5);           // hielo: derrapa
+    } else {
+      p.vx = mv * spd;
+    }
     if (mv !== 0) p.facing = mv;
     if (mv === 0) p.facing = foe.x > p.x ? 1 : -1;
     if (inp.jump && !p.jumpHeld) doJump(p);
@@ -93,16 +98,26 @@ function updatePlayer(p, foe, isP1, dt) {
   p.feintHeld = inp.feint;
   p.jumpHeld = inp.jump;
 
-  // viento (destino o tejado)
-  if (destino.id === 'viento' || stage.id === 'tejado') {
+  // viento (destino o tejado) y vaivén de la cubierta (barco)
+  if (destino.id === 'viento' || stage.id === 'tejado' || stage.id === 'barco') {
     p.x += windForce * dt;
   }
 
   // física
   if (!p.onGround || p.vy < 0) p.vy += 1500 * dt;
+  const prevY = p.y;
   p.x += p.vx * dt;
   p.y += p.vy * dt;
-  if (p.y >= GROUND) {
+  // balneario: la baranda es plataforma — se aterriza cayendo sobre
+  // ella (si el salto alcanza) y se baja a la arena apretando abajo
+  if (stage.id === 'playa' && p.state !== PSTATE.DEAD && p.vy >= 0 && !inp.down &&
+      p.x > BARANDA_X0 && p.x < BARANDA_X1 &&
+      prevY <= BARANDA_Y + 0.5 && p.y >= BARANDA_Y) {
+    p.y = BARANDA_Y;
+    p.vy = 0;
+    p.onGround = true;
+    p.jumpsUsed = 0;
+  } else if (p.y >= GROUND) {
     const wasAir = !p.onGround;
     p.y = GROUND; p.vy = 0; p.onGround = true; p.jumpsUsed = 0;
     // Sapo Ronin: rebota al aterrizar
@@ -179,10 +194,12 @@ function update(dt) {
   }
   if (destino.id === 'oscuridad') darkPulse = (Math.sin(gTime * 3.1) + Math.sin(gTime * 7.7)) * 0.5;
 
-  // viento
+  // viento · el barco se mece despacio de babor a estribor
   windPhase += dt;
   const windy = destino.id === 'viento' || stage.id === 'tejado';
-  windForce = windy ? Math.sin(windPhase * 0.5) * 90 + Math.sin(windPhase * 1.7) * 40 : 0;
+  windForce = windy ? Math.sin(windPhase * 0.5) * 90 + Math.sin(windPhase * 1.7) * 40
+            : stage.id === 'barco' ? Math.sin(windPhase * 0.7) * 75
+            : 0;
 
   // ambiente: pétalos
   for (const pt of petals) {

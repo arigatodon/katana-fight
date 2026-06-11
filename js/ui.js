@@ -318,8 +318,8 @@ function drawTitle(t) {
   if (TOUCH) {
     ctx.fillText('◀ ▶ mover · ▲ saltar · 斬 golpe · 謀 finta (mantén = bloqueo)', W / 2, H * 0.88);
   } else {
-    ctx.fillText('J1: A/D mover · W saltar · F golpe · G finta (mantén = bloqueo)', W / 2, H * 0.86);
-    ctx.fillText('J2: ←/→ mover · ↑ saltar · K golpe · L finta', W / 2, H * 0.90);
+    ctx.fillText('J1: A/D mover · W saltar · S bajar · F golpe · G finta (mantén = bloqueo)', W / 2, H * 0.86);
+    ctx.fillText('J2: ←/→ mover · ↑ saltar · ↓ bajar · K golpe · L finta', W / 2, H * 0.90);
   }
   ctx.fillStyle = '#665';
   const secretos = save.unlocked.length;

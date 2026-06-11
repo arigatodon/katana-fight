@@ -5,7 +5,7 @@
 // ============================================================
 
 function updateAI(p, foe, dt) {
-  const out = { left: false, right: false, jump: false, attack: false, feint: false, guard: false };
+  const out = { left: false, right: false, jump: false, down: false, attack: false, feint: false, guard: false };
   if (p.state === PSTATE.DEAD || roundStartTimer > 0) return out;
   const dist = Math.abs(p.x - foe.x);
   const dirToFoe = foe.x > p.x ? 1 : -1;
@@ -70,6 +70,12 @@ function updateAI(p, foe, dt) {
       const nx = p.x - dirToFoe * 40;
       if (nx < W * 0.16 || nx > W * 0.84) p.aiAction = 'guard';
     }
+  }
+
+  // balneario: persigue el nivel del rival (subir a la baranda / bajar)
+  if (stage.id === 'playa') {
+    if (foe.y < p.y - 30 && dist < 150 && p.aiAction === 'approach') out.jump = true;
+    if (foe.y > p.y + 30) out.down = true;
   }
 
   switch (p.aiAction) {

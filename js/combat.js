@@ -53,6 +53,7 @@ function doJump(p) {
   if (!p.onGround && !p.char.doubleJump) return;
   let jv = p.jumpVel;
   if (destino.id === 'lluvia') jv *= 0.7;
+  if (stage.id === 'playa' && p.y >= GROUND - 1) jv *= 0.85;   // la arena hunde el impulso
   p.vy = jv;
   p.onGround = false;
   p.jumpsUsed++;

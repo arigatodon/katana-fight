@@ -146,13 +146,14 @@ function packLocalInput() {
   if (keys['KeyW'] || keys['Space'] || touchState.jump) v |= 4;
   if (keys['KeyF'] || touchState.attack) v |= 8;
   if (keys['KeyG'] || touchState.feint) v |= 16;
+  if (keys['KeyS'] || touchState.down) v |= 32;     // bajar de la baranda
   return v;
 }
 
 function unpackInput(v) {
   return {
     left: !!(v & 1), right: !!(v & 2), jump: !!(v & 4),
-    attack: !!(v & 8), feint: !!(v & 16), guard: false,
+    attack: !!(v & 8), feint: !!(v & 16), down: !!(v & 32), guard: false,
   };
 }
 

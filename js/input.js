@@ -18,12 +18,13 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
 const TOUCH = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
-const touchState = { left: false, right: false, jump: false, attack: false, feint: false };
+const touchState = { left: false, right: false, jump: false, attack: false, feint: false, down: false };
 
 const TBTN = [
   { id: 'left',   x: 85,      y: H - 65,  r: 46, label: '◀' },
   { id: 'right',  x: 200,     y: H - 65,  r: 46, label: '▶' },
   { id: 'jump',   x: 142,     y: H - 168, r: 36, label: '▲' },
+  { id: 'down',   x: 40,      y: H - 172, r: 30, label: '▼' },   // bajar de la baranda (balneario)
   { id: 'attack', x: W - 85,  y: H - 75,  r: 52, label: '斬' },
   { id: 'feint',  x: W - 205, y: H - 58,  r: 42, label: '謀' },
 ];
@@ -66,6 +67,7 @@ function readInput(p, isP1, foe, dt) {
       left:   keys['KeyA'] || touchState.left,
       right:  keys['KeyD'] || touchState.right,
       jump:   keys['KeyW'] || keys['Space'] || touchState.jump,
+      down:   keys['KeyS'] || touchState.down,
       attack: keys['KeyF'] || touchState.attack,
       feint:  keys['KeyG'] || touchState.feint,
       guard:  false,
@@ -74,6 +76,7 @@ function readInput(p, isP1, foe, dt) {
   return {
     left: keys['ArrowLeft'], right: keys['ArrowRight'],
     jump: keys['ArrowUp'],
+    down: keys['ArrowDown'],
     attack: keys['KeyK'],
     feint: keys['KeyL'],
     guard: false,

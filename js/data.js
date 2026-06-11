@@ -123,6 +123,9 @@ const STAGES = [
   { id: 'templo',  name: 'TEMPLO',          kanji: '寺',   desc: 'Las campanas distraen' },
   { id: 'mercado', name: 'MERCADO',         kanji: '市場', desc: 'Los espectadores lanzan objetos' },
   { id: 'volcan',  name: 'VOLCÁN',          kanji: '火山', desc: 'Grietas ardientes en el suelo' },
+  { id: 'playa',   name: 'BALNEARIO',       kanji: '浜',   desc: 'La arena frena; la baranda es de los ágiles' },
+  { id: 'nieve',   name: 'CUMBRE NEVADA',   kanji: '雪',   desc: 'El hielo no perdona las frenadas' },
+  { id: 'barco',   name: 'JUNCO EN ALTAMAR', kanji: '船',  desc: 'La cubierta se mece con las olas' },
 ];
 
 // ---------------- Rasgos raros ----------------

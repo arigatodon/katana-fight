@@ -8,6 +8,10 @@ const cvs = document.getElementById('game');
 const ctx = cvs.getContext('2d');
 const W = cvs.width, H = cvs.height;
 const GROUND = H - 80;
+// balneario: la baranda blanca es una plataforma; su altura hace que
+// solo los personajes ágiles (salto alto) puedan subir desde la arena
+const BARANDA_Y = GROUND - 64;
+const BARANDA_X0 = W * 0.14, BARANDA_X1 = W * 0.86;
 const WIN_ROUNDS = 2;          // rondas para ganar un duelo (mejor de 3)
 const VIDA_MAX = 100;
 const RUN_FIGHTS = 6;          // torneo: 5 duelos al azar + el jefe secreto
