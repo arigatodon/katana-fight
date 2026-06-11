@@ -1,7 +1,9 @@
-# Kamal config para katana.bloqs.cl — convive en el mismo VPS que
+# Kamal config para katana.igorv.org — convive en el mismo VPS que
 # bloqs.cl, memoriaqr.cl, lozarate y agentesgpt (kamal-proxy enruta
 # por dominio). Un solo contenedor Node sirve el juego y el WebSocket
 # de emparejamiento (~40 MB de RAM).
+# OJO: igorv.org (raíz) tiene sitio y correo en Hostinger — solo se
+# usa el subdominio, que no toca nada de eso.
 
 service: katana
 image: arigatodon/katana-fight
@@ -12,7 +14,7 @@ servers:
 
 proxy:
   ssl: true
-  host: katana.bloqs.cl
+  host: katana.igorv.org
   app_port: 8081
   healthcheck:
     path: /up

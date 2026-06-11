@@ -28,12 +28,12 @@ KATANA_URL='http://localhost:8090/?server=ws://localhost:8090' python3 e2e_onlin
 ## Despliegue con Kamal
 
 Configurado en `config/deploy.yml` igual que memoriaqr: mismo VPS
-(`72.60.156.215`), kamal-proxy enruta `katana.bloqs.cl` con SSL
+(`72.60.156.215`), kamal-proxy enruta `katana.igorv.org` con SSL
 automático, imagen `arigatodon/katana-fight` en Docker Hub.
 
 Requisitos una sola vez:
 
-1. **DNS**: registro A `katana.bloqs.cl → 72.60.156.215`.
+1. **DNS**: registro A `katana.igorv.org → 72.60.156.215`.
 2. El secreto `KAMAL_REGISTRY_PASSWORD` exportado en tu shell
    (el mismo que usas para desplegar memoriaqr).
 
@@ -47,7 +47,7 @@ kamal deploy
 Útiles: `kamal logs` (alias), `kamal app details`, `kamal rollback`.
 
 > kamal-proxy pasa los WebSockets sin configuración extra; el cliente
-> usa `wss://katana.bloqs.cl/ws` automáticamente al servirse por HTTPS.
+> usa `wss://katana.igorv.org/ws` automáticamente al servirse por HTTPS.
 
 ## Notas
 
