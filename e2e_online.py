@@ -148,6 +148,21 @@ try:
             check('derrota anotada en /ranking',
                   filaP is not None and filaP['losses'] == 1 and filaP['pts'] == 0,
                   json.dumps(filaP))
+
+            # comentarios: POST guarda y GET /comentarios lo publica escapado
+            com = C.evaluate("""async () => {
+              const r = await fetch(netHttpBase() + '/comentarios', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: 'tester', text: '¡gran juego! <script>x</script>' }),
+              });
+              const ok = (await r.json()).ok;
+              const html = await (await fetch(netHttpBase() + '/comentarios')).text();
+              return { ok, html };
+            }""")
+            check('comentario aceptado', com['ok'] is True)
+            check('comentario publicado y escapado',
+                  '¡gran juego!' in com['html'] and '<script>x' not in com['html']
+                  and 'TESTER' in com['html'])
             C.close()
         browser.close()
 except Exception as e:

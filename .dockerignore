@@ -2,5 +2,7 @@
 server/node_modules
 smoke.html
 e2e_online.py
+og_image.py
+server/data
 .kamal
 Dockerfile

@@ -9,16 +9,32 @@ const TITLE_OPTS = [
   { id: 'torneo', label: 'TORNEO · 5 duelos y un rival secreto' },
   { id: 'final',  label: 'TORNEO GOLPE FINAL · un corte decide' },
   { id: 'vs2',    label: '2 JUGADORES · elige tu guerrero' },
-  { id: 'online',  label: 'DUELO EN LÍNEA · emparejamiento' },
-  { id: 'rankNet', label: 'RANKING EN LÍNEA · los mejores duelistas' },
-  { id: 'rank',    label: 'TABLA DE RÉCORDS' },
+  { id: 'online', label: 'DUELO EN LÍNEA · emparejamiento' },
+  { id: 'rank',   label: 'TABLA DE RÉCORDS' },
 ];
+
+// tabla de récords: una pestaña por modo de juego
+const RANK_TABS = [
+  { id: 'torneo', label: 'TORNEO' },
+  { id: 'final',  label: 'GOLPE FINAL' },
+  { id: 'online', label: 'EN LÍNEA' },
+];
+let rankTab = 0;
+
+function setRankTab(i) {
+  rankTab = (i + RANK_TABS.length) % RANK_TABS.length;
+  if (RANK_TABS[rankTab].id === 'online') fetchNetRanking();
+}
+
+// enlaces del título (también vale el footer HTML en escritorio)
+const LINK_HOME = 'https://igorv.org';
+const LINK_DONA = 'https://www.buda.com/link/arigatodon';
+const LINK_MPAGO = 'https://link.mercadopago.cl/igordev';   // acepta tarjetas y débito chilenos
 
 function titleChoose(i) {
   const id = TITLE_OPTS[i].id;
   sfxConfirm();
-  if (id === 'rank') { scene = 'ranking'; return; }
-  if (id === 'rankNet') { fetchNetRanking(); scene = 'rankingOnline'; return; }
+  if (id === 'rank') { setRankTab(rankTab); scene = 'ranking'; return; }
   if (id === 'vs2') { start2P(); return; }
   if (id === 'online') { enterNombre(); return; }
   startRun(id === 'final');
@@ -57,6 +73,70 @@ if (nameInput) {
   nameInput.addEventListener('keydown', e => {
     if (e.key === 'Enter') confirmName();
     if (e.key === 'Escape') { hideNameInput(); scene = 'title'; }
+  });
+}
+
+// ---------------- Apoyo al herrero (al terminar el torneo) ----------------
+let apoyoSel = 3;
+let comentarioEnviado = false;   // un comentario por torneo
+
+function apoyoOpts() {
+  return [
+    { id: 'buda',  label: 'DONAR ❤ VÍA BUDA' },
+    { id: 'mpago', label: 'DONAR ❤ VÍA MERCADO PAGO' },
+    { id: 'coment', label: comentarioEnviado ? 'COMENTARIO ENVIADO ✓' : 'DEJAR COMENTARIO O SUGERENCIA' },
+    { id: 'seguir', label: 'VER MI PUNTAJE' },
+  ];
+}
+
+function enterApoyo() {
+  apoyoSel = apoyoOpts().length - 1;   // por defecto: seguir
+  scene = 'apoyo';
+}
+
+function apoyoChoose(i) {
+  const id = apoyoOpts()[i].id;
+  sfxConfirm();
+  if (id === 'buda') { window.open(LINK_DONA, '_blank'); return; }
+  if (id === 'mpago') { window.open(LINK_MPAGO, '_blank'); return; }
+  if (id === 'coment') { if (!comentarioEnviado) enterComentario(); return; }
+  finishRunScore();
+}
+
+// comentario: textarea HTML flotante, se publica en /comentarios
+const commentInput = document.getElementById('commentInput');
+
+function enterComentario() {
+  scene = 'comentario';
+  commentInput.value = '';
+  commentInput.style.display = 'block';
+  setTimeout(() => commentInput.focus(), 50);
+}
+
+function hideCommentInput() {
+  commentInput.style.display = 'none';
+  commentInput.blur();
+}
+
+function sendComment() {
+  const text = commentInput.value.trim().slice(0, 280);
+  hideCommentInput();
+  if (!text) { scene = 'apoyo'; return; }
+  fetch(netHttpBase() + '/comentarios', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: save.onlineName || save.lastFirma || 'ANÓNIMO', text }),
+  }).catch(() => {});
+  comentarioEnviado = true;
+  apoyoSel = apoyoOpts().length - 1;   // siguiente ENTER: ver el puntaje
+  sfxConfirm();
+  scene = 'apoyo';
+}
+
+if (commentInput) {
+  commentInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment(); }
+    if (e.key === 'Escape') { hideCommentInput(); scene = 'apoyo'; }
   });
 }
 
@@ -104,6 +184,17 @@ function handleMenus() {
         if (netActive() || netResult) leaveNetMatch();
         else continueRun();
       }
+    } else if (scene === 'apoyo') {
+      const n = apoyoOpts().length;
+      if (code === 'KeyW' || code === 'ArrowUp')   { apoyoSel = (apoyoSel + n - 1) % n; sfxSelect(); }
+      if (code === 'KeyS' || code === 'ArrowDown') { apoyoSel = (apoyoSel + 1) % n; sfxSelect(); }
+      if (code === 'Enter' || code === 'Space') apoyoChoose(apoyoSel);
+      if (code === 'Escape') { sfxConfirm(); finishRunScore(); }
+    } else if (scene === 'comentario') {
+      // mientras se escribe, el textarea retiene las teclas; esto cubre
+      // el caso de confirmar/cancelar con el campo sin foco
+      if (code === 'Enter') sendComment();
+      if (code === 'Escape') { hideCommentInput(); scene = 'apoyo'; }
     } else if (scene === 'firma') {
       if (code === 'KeyA' || code === 'ArrowLeft')  { firmaPos = (firmaPos + 2) % 3; sfxSelect(); }
       if (code === 'KeyD' || code === 'ArrowRight') { firmaPos = (firmaPos + 1) % 3; sfxSelect(); }
@@ -111,12 +202,18 @@ function handleMenus() {
       if (code === 'KeyS' || code === 'ArrowDown')  { firmaChars[firmaPos] = cycleChar(firmaChars[firmaPos], -1); sfxSelect(); }
       if (code === 'Enter' || code === 'Space') { sfxConfirm(); submitScore(); }
       if (/^Key[A-Z]$/.test(code)) { firmaChars[firmaPos] = code[3]; firmaPos = Math.min(2, firmaPos + 1); sfxSelect(); }
-    } else if (scene === 'ranking' || scene === 'rankingOnline') {
+    } else if (scene === 'ranking') {
+      if (code === 'KeyA' || code === 'ArrowLeft')  { setRankTab(rankTab - 1); sfxSelect(); }
+      if (code === 'KeyD' || code === 'ArrowRight') { setRankTab(rankTab + 1); sfxSelect(); }
       if (code === 'Enter' || code === 'Space' || code === 'Escape') { sfxConfirm(); scene = 'title'; }
     }
   }
   for (const tp of tapQueue) {
     if (scene === 'title') {
+      if (tp.y < 34) {        // enlaces de las esquinas superiores
+        if (tp.x < 120) { window.open(LINK_HOME, '_blank'); continue; }
+        if (tp.x > W - 120) { window.open(LINK_DONA, '_blank'); continue; }
+      }
       for (let i = 0; i < TITLE_OPTS.length; i++) {
         if (Math.abs(tp.y - (H * 0.52 + i * 42)) < 20) {
           if (menuSel === i) titleChoose(i);
@@ -150,6 +247,17 @@ function handleMenus() {
       sfxConfirm();
       if (netActive() || netResult) leaveNetMatch();
       else continueRun();
+    } else if (scene === 'apoyo') {
+      const opts = apoyoOpts();
+      for (let i = 0; i < opts.length; i++) {
+        if (Math.abs(tp.y - (H * 0.44 + i * 50)) < 23) {
+          if (apoyoSel === i) apoyoChoose(i);
+          else { apoyoSel = i; sfxSelect(); }
+        }
+      }
+    } else if (scene === 'comentario') {
+      if (Math.abs(tp.x - W / 2) < 130 && Math.abs(tp.y - H * 0.68) < 30) sendComment();
+      else if (tp.y > H * 0.82) { hideCommentInput(); scene = 'apoyo'; }
     } else if (scene === 'firma') {
       for (let i = 0; i < 3; i++) {
         const lx = W / 2 + (i - 1) * 80;
@@ -159,8 +267,14 @@ function handleMenus() {
         }
       }
       if (Math.abs(tp.x - W / 2) < 110 && Math.abs(tp.y - H * 0.74) < 26) { sfxConfirm(); submitScore(); }
-    } else if (scene === 'ranking' || scene === 'rankingOnline') {
-      sfxConfirm(); scene = 'title';
+    } else if (scene === 'ranking') {
+      let hit = false;
+      for (let i = 0; i < RANK_TABS.length; i++) {
+        if (Math.abs(tp.x - (W / 2 + (i - 1) * 240)) < 110 && Math.abs(tp.y - 96) < 22) {
+          setRankTab(i); sfxSelect(); hit = true;
+        }
+      }
+      if (!hit) { sfxConfirm(); scene = 'title'; }
     }
   }
 }
@@ -169,8 +283,8 @@ function handleMenus() {
 function leaveNetMatch() {
   netLeave();
   netResult = null;
-  fetchNetRanking();
-  scene = 'rankingOnline';
+  setRankTab(RANK_TABS.findIndex(tb => tb.id === 'online'));
+  scene = 'ranking';
 }
 
 // ---------------- Pantallas ----------------
@@ -210,6 +324,14 @@ function drawTitle(t) {
   ctx.fillStyle = '#665';
   const secretos = save.unlocked.length;
   ctx.fillText(`victorias: ${save.totalWins} · mejor racha: ${save.bestStreak} · secretos: ${secretos}/${SECRET_CHARS.length} · título: ${currentTitle()}`, W / 2, H * 0.96);
+  // enlaces en las esquinas (tocables / clicables)
+  ctx.font = '12px "Courier New", monospace';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#5a7a8a';
+  ctx.fillText('igorv.org', 12, 22);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#a86a6a';
+  ctx.fillText('dona ❤', W - 12, 22);
   ctx.textAlign = 'left';
 }
 
@@ -426,6 +548,9 @@ function drawDestinoScene(t) {
   ctx.restore();
   drawCenterText(destino.name, 32, H * 0.74, '#fff');
   drawCenterText(destino.desc, 16, H * 0.81, '#c0b8a8', 'transparent');
+  if (destinoPorClima && clima) {
+    drawCenterText(`el cielo real lo dicta: hay ${clima.label} en tu ciudad`, 13, H * 0.9, '#9ad0e8', 'transparent');
+  }
 }
 
 // apuestas al azar: la suerte decide y se muestra en pantalla
@@ -498,6 +623,42 @@ function drawMatchEnd(t) {
   }
 }
 
+// gracias por jugar: donar o dejar un comentario antes del puntaje
+function drawApoyo(t) {
+  drawBackground();
+  ctx.fillStyle = 'rgba(0,0,0,0.78)';
+  ctx.fillRect(0, 0, W, H);
+  drawCenterText('礼', 60, H * 0.15, '#b03030', '#000');
+  drawCenterText('GRACIAS POR JUGAR', 30, H * 0.27, '#e8c050');
+  drawCenterText('si el duelo te gustó, puedes apoyar al herrero o dejarle un mensaje', 14, H * 0.34, '#c0b8a8', 'transparent');
+  const opts = apoyoOpts();
+  for (let i = 0; i < opts.length; i++) {
+    const sel = apoyoSel === i;
+    const blink = sel && Math.sin(t * 6) > -0.2;
+    const enviado = opts[i].id === 'coment' && comentarioEnviado;
+    drawCenterText(
+      (sel ? '» ' : '  ') + opts[i].label + (sel ? ' «' : '  '),
+      19, H * 0.44 + i * 50,
+      enviado ? '#6a9a6a' : blink || sel ? '#e8c050' : '#888',
+      sel ? '#b03030' : 'transparent');
+  }
+  drawCenterText('los comentarios se publican en katana.igorv.org/comentarios', 12, H * 0.92, '#776', 'transparent');
+}
+
+// escribir comentario (el textarea HTML flota encima, centrado en H*0.42)
+function drawComentario(t) {
+  drawBackground();
+  ctx.fillStyle = 'rgba(0,0,0,0.82)';
+  ctx.fillRect(0, 0, W, H);
+  drawCenterText('TU COMENTARIO O SUGERENCIA', 26, H * 0.13, '#e8c050');
+  drawCenterText('quedará publicado en la página de comentarios del juego', 14, H * 0.21, '#c0b8a8', 'transparent');
+  ctx.strokeStyle = Math.sin(t * 4) > -0.3 ? '#e8c050' : '#9a8440';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(W / 2 - 130, H * 0.68 - 26, 260, 52);
+  drawCenterText('ENVIAR', 20, H * 0.69, '#e8c050', 'transparent');
+  drawCenterText(TOUCH ? 'toca ENVIAR · toca abajo para volver sin enviar' : 'ENTER envía · ESC vuelve sin enviar', 13, H * 0.88, '#776', 'transparent');
+}
+
 function drawFirma(t) {
   drawBackground();
   ctx.fillStyle = 'rgba(0,0,0,0.75)';
@@ -526,66 +687,79 @@ function drawFirma(t) {
   ctx.textAlign = 'left';
 }
 
-// ranking en línea: lo sirve el servidor del juego (GET /ranking)
-function drawRankingOnline(t) {
-  drawBackground();
-  ctx.fillStyle = 'rgba(0,0,0,0.78)';
-  ctx.fillRect(0, 0, W, H);
-  drawCenterText('番付 — RANKING EN LÍNEA', 28, 56, '#e8c050');
-
-  if (!netRank || netRank.fase === 'cargando') {
-    const dots = '.'.repeat(1 + (Math.floor(t * 2) % 3));
-    drawCenterText('consultando al escriba' + ' ' + dots, 16, H * 0.5, '#c0b8a8', 'transparent');
-  } else if (netRank.fase === 'error') {
-    drawCenterText('no se pudo alcanzar el servidor', 16, H * 0.5, '#ff8a7a', 'transparent');
-  } else if (!netRank.rows.length) {
-    drawCenterText('aún nadie ha ganado un duelo en línea…', 16, H * 0.5, '#776', 'transparent');
-  } else {
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 13px "Courier New", monospace';
-    ctx.fillStyle = '#998';
-    ctx.fillText(' #   NOMBRE          PUNTOS    V    D   MEJOR RACHA', W / 2, 96);
-    for (let i = 0; i < netRank.rows.length; i++) {
-      const r = netRank.rows[i];
-      const y = 126 + i * 32;
-      const top = i === 0;
-      const isMe = r.name === save.onlineName;
-      ctx.font = (top ? 'bold 15px' : '13px') + ' "Courier New", monospace';
-      ctx.fillStyle = isMe ? '#9ad0e8' : top ? '#e8c050' : i < 3 ? '#d8c8a0' : '#b0a890';
-      const row = `${String(i + 1).padStart(2)}   ${r.name.padEnd(12)} ${String(r.pts).padStart(8)} ${String(r.wins).padStart(4)} ${String(r.losses).padStart(4)}   ${String(r.best).padStart(5)}`;
-      ctx.fillText(row + (isMe ? '  ◂ tú' : ''), W / 2, y);
-    }
-    ctx.textAlign = 'left';
-  }
-  if (Math.sin(t * 4) > -0.3) {
-    drawCenterText(TOUCH ? 'toca para volver' : 'ENTER para volver', 14, H - 22, '#c0b8a8', 'transparent');
-  }
-}
-
+// tabla de récords con pestañas: torneo / golpe final / en línea
 function drawRanking(t) {
   drawBackground();
   ctx.fillStyle = 'rgba(0,0,0,0.78)';
   ctx.fillRect(0, 0, W, H);
-  drawCenterText('番付 — TABLA DE RÉCORDS', 28, 56, '#e8c050');
+  drawCenterText('番付 — TABLA DE RÉCORDS', 28, 52, '#e8c050');
+
+  ctx.textAlign = 'center';
+  for (let i = 0; i < RANK_TABS.length; i++) {
+    const sel = rankTab === i;
+    ctx.font = (sel ? 'bold 16px' : '14px') + ' "Courier New", monospace';
+    ctx.fillStyle = sel ? '#e8c050' : '#776';
+    ctx.fillText((sel ? '« ' : '') + RANK_TABS[i].label + (sel ? ' »' : ''), W / 2 + (i - 1) * 240, 100);
+  }
+
+  const cat = RANK_TABS[rankTab].id;
+  if (cat === 'online') drawRankRowsOnline(t);
+  else drawRankRowsLocal(save.rankings[cat]);
+
+  ctx.textAlign = 'left';
+  drawCenterText(`reputación — honor ${save.rep.honor} · astucia ${save.rep.astucia} · ferocidad ${save.rep.ferocidad} · disciplina ${save.rep.disciplina}`, 13, H - 50, '#998', 'transparent');
+  if (Math.sin(t * 4) > -0.3) {
+    drawCenterText(TOUCH ? 'desliza las pestañas con un toque · toca abajo para volver' : 'A/D cambiar pestaña · ENTER para volver', 14, H - 22, '#c0b8a8', 'transparent');
+  }
+}
+
+function drawRankRowsLocal(tabla) {
   ctx.textAlign = 'center';
   ctx.font = 'bold 13px "Courier New", monospace';
   ctx.fillStyle = '#998';
-  ctx.fillText('#   FIRMA   PUNTAJE   RACHA   FECHA       TÍTULO', W / 2, 96);
-  if (!save.ranking.length) {
-    drawCenterText('aún nadie ha dejado su nombre…', 16, H * 0.5, '#776', 'transparent');
+  ctx.fillText('#   FIRMA   PUNTAJE   RACHA   FECHA       TÍTULO', W / 2, 138);
+  if (!tabla.length) {
+    drawCenterText('aún nadie ha dejado su nombre…', 16, H * 0.52, '#776', 'transparent');
+    return;
   }
-  for (let i = 0; i < save.ranking.length; i++) {
-    const r = save.ranking[i];
-    const y = 126 + i * 32;
+  for (let i = 0; i < tabla.length; i++) {
+    const r = tabla[i];
+    const y = 166 + i * 30;
     const top = i === 0;
     ctx.font = (top ? 'bold 15px' : '13px') + ' "Courier New", monospace';
     ctx.fillStyle = top ? '#e8c050' : i < 3 ? '#d8c8a0' : '#b0a890';
     const row = `${String(i + 1).padStart(2)}  ${r.firma.padEnd(5)} ${String(r.score).padStart(8)}  ${String(r.racha).padStart(4)}   ${(r.fecha || '').padEnd(10)}  ${r.titulo || ''}`;
     ctx.fillText(row, W / 2, y);
   }
-  ctx.textAlign = 'left';
-  drawCenterText(`reputación — honor ${save.rep.honor} · astucia ${save.rep.astucia} · ferocidad ${save.rep.ferocidad} · disciplina ${save.rep.disciplina}`, 13, H - 50, '#998', 'transparent');
-  if (Math.sin(t * 4) > -0.3) {
-    drawCenterText(TOUCH ? 'toca para volver' : 'ENTER para volver', 14, H - 22, '#c0b8a8', 'transparent');
+}
+
+// filas del ranking en línea (lo sirve el servidor: GET /ranking)
+function drawRankRowsOnline(t) {
+  if (!netRank || netRank.fase === 'cargando') {
+    const dots = '.'.repeat(1 + (Math.floor(t * 2) % 3));
+    drawCenterText('consultando al escriba ' + dots, 16, H * 0.52, '#c0b8a8', 'transparent');
+    return;
+  }
+  if (netRank.fase === 'error') {
+    drawCenterText('no se pudo alcanzar el servidor', 16, H * 0.52, '#ff8a7a', 'transparent');
+    return;
+  }
+  if (!netRank.rows.length) {
+    drawCenterText('aún nadie ha ganado un duelo en línea…', 16, H * 0.52, '#776', 'transparent');
+    return;
+  }
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 13px "Courier New", monospace';
+  ctx.fillStyle = '#998';
+  ctx.fillText(' #   NOMBRE          PUNTOS    V    D   MEJOR RACHA', W / 2, 138);
+  for (let i = 0; i < netRank.rows.length; i++) {
+    const r = netRank.rows[i];
+    const y = 166 + i * 30;
+    const top = i === 0;
+    const isMe = r.name === save.onlineName;
+    ctx.font = (top ? 'bold 15px' : '13px') + ' "Courier New", monospace';
+    ctx.fillStyle = isMe ? '#9ad0e8' : top ? '#e8c050' : i < 3 ? '#d8c8a0' : '#b0a890';
+    const row = `${String(i + 1).padStart(2)}   ${r.name.padEnd(12)} ${String(r.pts).padStart(8)} ${String(r.wins).padStart(4)} ${String(r.losses).padStart(4)}   ${String(r.best).padStart(5)}`;
+    ctx.fillText(row + (isMe ? '  ◂ tú' : ''), W / 2, y);
   }
 }

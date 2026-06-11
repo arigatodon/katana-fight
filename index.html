@@ -6,6 +6,17 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <title>KATANA FIGHT — Duelo de Samuráis</title>
+<!-- vista previa al compartir el link (WhatsApp, Facebook, etc.) -->
+<meta name="description" content="Duelos de katana 1 contra 1: torneo arcade con rivales secretos, 2 jugadores y duelo en línea con ranking. Gratis, en tu navegador.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://katana.igorv.org/">
+<meta property="og:title" content="KATANA FIGHT — Duelo de Samuráis">
+<meta property="og:description" content="Duelos de katana 1 contra 1: torneo arcade con rivales secretos, 2 jugadores y duelo en línea con ranking. Gratis, en tu navegador. ¿Te atreves?">
+<meta property="og:image" content="https://katana.igorv.org/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="es_CL">
+<meta name="twitter:card" content="summary_large_image">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
@@ -39,10 +50,28 @@
     letter-spacing: 3px;
     outline: none;
   }
+  /* comentario / sugerencia al terminar un torneo */
+  #commentInput {
+    display: none;
+    position: absolute;
+    left: 50%; top: 42%;
+    transform: translate(-50%, -50%);
+    width: 64%;
+    max-width: 520px;
+    height: 110px;
+    padding: 10px 14px;
+    background: rgba(10, 10, 18, 0.92);
+    border: 2px solid #e8c050;
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    font-size: 16px;
+    resize: none;
+    outline: none;
+  }
   canvas {
     display: block;
     max-width: 100vw;
-    max-height: 100vh;
+    max-height: calc(100vh - 30px);   /* deja sitio al footer */
     image-rendering: pixelated;
     box-shadow: 0 0 60px rgba(180, 40, 40, .25);
     touch-action: none;
@@ -65,11 +94,37 @@
   @media (orientation: portrait) and (pointer: coarse) {
     #rotate { display: flex; }
   }
+  #footer {
+    position: fixed;
+    bottom: 5px; left: 0; right: 0;
+    text-align: center;
+    font-size: 13px;
+    color: #776;
+    z-index: 5;
+  }
+  #footer a { color: #9ad0e8; text-decoration: none; }
+  #footer a:hover { color: #e8c050; }
+  #footer .dona { color: #e89a9a; }
+  /* móvil: el footer estorbaría a los botones táctiles;
+     los mismos enlaces están en las esquinas de la pantalla de título */
+  @media (pointer: coarse) {
+    #footer { display: none; }
+    canvas { max-height: 100vh; }
+  }
 </style>
 </head>
 <body>
-<div id="wrap"><canvas id="game" width="960" height="540"></canvas><input id="nameInput" maxlength="12" autocomplete="off" spellcheck="false" placeholder="TU NOMBRE"></div>
+<div id="wrap"><canvas id="game" width="960" height="540"></canvas><input id="nameInput" maxlength="12" autocomplete="off" spellcheck="false" placeholder="TU NOMBRE"><textarea id="commentInput" maxlength="280" spellcheck="false" placeholder="tu comentario o sugerencia…"></textarea></div>
 <div id="rotate">📱⟳<br>Gira tu teléfono<br><span style="font-size:15px;color:#998">el duelo se juega en horizontal</span></div>
+<div id="footer">
+  un juego de <a href="https://igorv.org" target="_blank" rel="noopener">igorv.org</a>
+  &nbsp;·&nbsp;
+  <a class="dona" href="https://www.buda.com/link/arigatodon" target="_blank" rel="noopener">dona ❤ Buda</a>
+  &nbsp;·&nbsp;
+  <a class="dona" href="https://link.mercadopago.cl/igordev" target="_blank" rel="noopener">dona ❤ MercadoPago</a>
+  &nbsp;·&nbsp;
+  <a href="/comentarios" target="_blank" rel="noopener">comentarios</a>
+</div>
 
 <!-- KATANA FIGHT — el orden de carga importa (scripts clásicos, sin módulos) -->
 <script src="js/core.js"></script>     <!-- canvas, constantes, guardado, estado global -->
@@ -78,6 +133,7 @@
 <script src="js/fx.js"></script>       <!-- partículas, estelas, textos flotantes, ambiente -->
 <script src="js/input.js"></script>    <!-- teclado y controles táctiles -->
 <script src="js/net.js"></script>      <!-- emparejamiento online y lockstep -->
+<script src="js/weather.js"></script>  <!-- clima real → destinos del duelo (solo local) -->
 <script src="js/player.js"></script>   <!-- creación de jugadores y estadísticas derivadas -->
 <script src="js/combat.js"></script>   <!-- golpes, fintas, bloqueo, parry, postura, muerte -->
 <script src="js/ai.js"></script>       <!-- inteligencia de la CPU -->

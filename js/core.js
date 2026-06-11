@@ -20,13 +20,19 @@ function loadSave() {
     if (s && s.rep) {
       s.unlocked = s.unlocked || [];
       s.onlineName = s.onlineName || '';
+      // migración: el ranking único pasa a una tabla por categoría
+      s.rankings = s.rankings || { torneo: s.ranking || [], final: [] };
+      delete s.ranking;
       return s;
     }
   } catch (e) {}
   return {
     totalWins: 0, streak: 0, bestStreak: 0,
     rep: { honor: 0, astucia: 0, ferocidad: 0, disciplina: 0 },
-    ranking: [],            // { firma, score, char, fecha, racha, titulo }
+    rankings: {             // { firma, score, char, fecha, racha, titulo }
+      torneo: [],           // torneo normal
+      final: [],            // torneo golpe final
+    },
     unlocked: [],           // ids de personajes secretos vencidos
     lastFirma: 'AAA',
     onlineName: '',         // nombre para el duelo en línea
@@ -54,7 +60,7 @@ function rnd() {
 // ---------------- Estado global ----------------
 // Escenas: title | nombre | online | choose | virtud | vs |
 //          destino | apuesta | fight | roundEnd | matchEnd |
-//          firma | ranking | rankingOnline
+//          apoyo | comentario | firma | ranking
 let scene = 'title';
 let menuSel = 0;
 let vsCPU = true;

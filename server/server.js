@@ -82,14 +82,113 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
+// ---------------- Comentarios de los jugadores ----------------
+// Al terminar un torneo el juego ofrece dejar un comentario o
+// sugerencia; se guardan en disco y se publican en GET /comentarios
+// (una página HTML simple con el estilo del juego).
+const COMMENTS_FILE = path.join(DATA_DIR, 'comentarios.json');
+const MAX_COMMENTS = 500;
+let comentarios = [];
+try { comentarios = JSON.parse(fs.readFileSync(COMMENTS_FILE, 'utf8')); } catch (e) {}
+const lastCommentByIp = new Map();    // antiabuso: 1 comentario por IP cada 30 s
+
+function saveComments() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(COMMENTS_FILE, JSON.stringify(comentarios));
+  } catch (e) { console.error('no se pudieron guardar los comentarios:', e.message); }
+}
+
+const CORS_JSON = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+
+function postComment(req, res) {
+  let body = '';
+  req.on('data', ch => { body += ch; if (body.length > 4096) req.destroy(); });
+  req.on('end', () => {
+    const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '')
+      .split(',')[0].trim();
+    if (Date.now() - (lastCommentByIp.get(ip) || 0) < 30000) {
+      res.writeHead(429, CORS_JSON); res.end('{"ok":false}'); return;
+    }
+    let m;
+    try { m = JSON.parse(body); } catch (e) { m = null; }
+    const text = String((m && m.text) || '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 280);
+    if (!text) { res.writeHead(400, CORS_JSON); res.end('{"ok":false}'); return; }
+    const name = String((m && m.name) || '').replace(/[^\p{L}\p{N} _.-]/gu, '')
+      .trim().slice(0, 12).toUpperCase() || 'ANÓNIMO';
+    comentarios.push({ name, text, fecha: new Date().toISOString() });
+    if (comentarios.length > MAX_COMMENTS) comentarios = comentarios.slice(-MAX_COMMENTS);
+    lastCommentByIp.set(ip, Date.now());
+    if (lastCommentByIp.size > 1000) lastCommentByIp.clear();
+    saveComments();
+    console.log(new Date().toISOString(), `comentario de ${name}: ${text.slice(0, 60)}`);
+    res.writeHead(200, CORS_JSON); res.end('{"ok":true}');
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function commentsPage() {
+  const items = comentarios.slice().reverse().map(c => {
+    const fecha = new Date(c.fecha).toLocaleDateString('es-CL',
+      { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return `    <li><span class="meta">${fecha} · ${escapeHtml(c.name)}</span><p>${escapeHtml(c.text)}</p></li>`;
+  }).join('\n');
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KATANA FIGHT — comentarios</title>
+<style>
+  body { background: #0a0a12; color: #e8e0d0; font-family: 'Courier New', monospace;
+         max-width: 720px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { color: #e8c050; font-size: 24px; text-align: center; }
+  h1 .kanji { color: #b03030; }
+  .sub { text-align: center; color: #998; font-size: 13px; margin-bottom: 30px; }
+  a { color: #9ad0e8; }
+  ul { list-style: none; padding: 0; }
+  li { border-left: 3px solid #b03030; background: rgba(255,255,255,0.04);
+       padding: 10px 14px; margin-bottom: 14px; }
+  .meta { color: #998; font-size: 12px; }
+  p { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; }
+  .vacio { color: #776; text-align: center; margin-top: 60px; }
+</style>
+</head>
+<body>
+<h1><span class="kanji">声</span> KATANA FIGHT — comentarios</h1>
+<div class="sub">lo que dejan los duelistas al terminar su torneo · <a href="/">volver al juego</a></div>
+${comentarios.length ? `<ul>\n${items}\n</ul>` : '<div class="vacio">aún nadie ha dejado un mensaje…</div>'}
+</body>
+</html>`;
+}
+
 const httpServer = http.createServer((req, res) => {
   if (req.url === '/up') { res.writeHead(200); res.end('ok'); return; }   // healthcheck
+  if (req.method === 'OPTIONS') {     // preflight CORS (desarrollo desde file://)
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET,POST',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    });
+    res.end();
+    return;
+  }
   let p;
   try { p = decodeURIComponent(req.url.split('?')[0]); } catch (e) { p = '/'; }
   if (p === '/ranking') {
     // CORS abierto: permite probar el juego desde file:// o localhost
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(200, CORS_JSON);
     res.end(JSON.stringify(topRanking(10)));
+    return;
+  }
+  if (p === '/comentarios') {
+    if (req.method === 'POST') { postComment(req, res); return; }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(commentsPage());
     return;
   }
   if (p === '/') p = '/index.html';

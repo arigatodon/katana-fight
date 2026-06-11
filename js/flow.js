@@ -18,6 +18,8 @@ function pickBoss() {
 function startRun(final) {
   vsCPU = true;
   modoFinal = !!final;
+  comentarioEnviado = false;     // un comentario por torneo (ui.js)
+  fetchWeather();                // el clima real influirá en los destinos
   run = { fight: 0, score: 0, boss: pickBoss() };
   runOver = null;
   runUnlocked = null;
@@ -39,6 +41,7 @@ function nextFight() {
 function start2P() {
   vsCPU = false;
   modoFinal = false;
+  fetchWeather();
   run = null;
   runOver = null;
   runVirtud = null;
@@ -110,9 +113,17 @@ function startMatch() {
 
 function startRoundFlow() {
   roundNum++;
-  destino = roundNum === 1 && rnd() < 0.35
-    ? DESTINOS[0]
-    : randomFrom(DESTINOS);
+  // clima real (solo local): online no se consume rnd() en la condición,
+  // así ambos clientes sacan el destino de la misma corriente del RNG
+  destinoPorClima = false;
+  if (!netActive() && clima && rnd() < 0.45) {
+    destino = DESTINOS.find(d => d.id === clima.destinoId) || DESTINOS[0];
+    destinoPorClima = true;
+  } else {
+    destino = roundNum === 1 && rnd() < 0.35
+      ? DESTINOS[0]
+      : randomFrom(DESTINOS);
+  }
   scene = 'destino';
   roundMsgTimer = 2.2;
   // la suerte reparte las apuestas: al azar pero visibles en pantalla
@@ -264,47 +275,56 @@ function finishMatch() {
 // al salir de matchEnd: seguir el torneo o cerrar la partida
 function continueRun() {
   if (run && !runOver) { nextFight(); return; }
+  if (run) { enterApoyo(); return; }   // torneo terminado: gracias + donar/comentar
+  scene = 'title';        // 2 jugadores
+}
+
+// cierre del torneo (desde la pantalla de apoyo): puntaje, firma y ranking
+function finishRunScore() {
   if (run) {
     pendingScore = run.score > 0 ? {
       score: run.score,
-      char: 'TORNEO',
+      cat: modoFinal ? 'final' : 'torneo',   // cada modo tiene su tabla
       racha: save.streak,
       titulo: currentTitle(),
     } : null;
     run = null;
-    if (pendingScore && qualifiesRanking(pendingScore.score)) {
+    if (pendingScore && qualifiesRanking(pendingScore.score, pendingScore.cat)) {
       firmaChars = save.lastFirma.split('').slice(0, 3);
       while (firmaChars.length < 3) firmaChars.push('A');
       firmaPos = 0;
       scene = 'firma';
     } else {
+      rankTab = pendingScore ? RANK_TABS.findIndex(tb => tb.id === pendingScore.cat) : 0;
       pendingScore = null;
       scene = 'ranking';
     }
     return;
   }
-  scene = 'title';        // 2 jugadores
+  scene = 'title';
 }
 
-function qualifiesRanking(score) {
-  if (save.ranking.length < 10) return true;
-  return score > save.ranking[save.ranking.length - 1].score;
+function qualifiesRanking(score, cat) {
+  const tabla = save.rankings[cat];
+  if (tabla.length < 10) return true;
+  return score > tabla[tabla.length - 1].score;
 }
 
 function submitScore() {
   const firma = firmaChars.join('');
   save.lastFirma = firma;
-  save.ranking.push({
+  const tabla = save.rankings[pendingScore.cat];
+  tabla.push({
     firma,
     score: pendingScore.score,
-    char: pendingScore.char,
     fecha: new Date().toLocaleDateString('es'),
     racha: pendingScore.racha,
     titulo: pendingScore.titulo,
   });
-  save.ranking.sort((a, b) => b.score - a.score);
-  save.ranking = save.ranking.slice(0, 10);
+  tabla.sort((a, b) => b.score - a.score);
+  save.rankings[pendingScore.cat] = tabla.slice(0, 10);
   persist();
+  rankTab = RANK_TABS.findIndex(tb => tb.id === pendingScore.cat);
   pendingScore = null;
   scene = 'ranking';
 }
