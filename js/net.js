@@ -14,6 +14,8 @@ const NET_DELAY = 4;          // tics de retraso de input (~67 ms a 60 Hz)
 const NET_MAX_CATCHUP = 5;    // máx tics simulados por frame al ponerse al día
 
 let net = null;               // null = sin partida online
+let netResult = null;         // resultado del último duelo online (para matchEnd)
+let netRank = null;           // ranking en línea: { fase, rows }
 
 function netActive() { return net !== null && net.fase !== 'error'; }
 function netPlaying() { return net !== null && net.fase === 'jugando'; }
@@ -27,7 +29,31 @@ function netUrl() {
   return 'ws://localhost:8081';     // desarrollo local o file:// → node server.js
 }
 
+// base HTTP del servidor del juego (para GET /ranking), espejo de netUrl
+function netHttpBase() {
+  return netUrl().replace(/^ws/, 'http').replace(/\/ws$/, '');
+}
+
+function fetchNetRanking() {
+  netRank = { fase: 'cargando', rows: [] };
+  fetch(netHttpBase() + '/ranking')
+    .then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
+    .then(rows => { netRank = { fase: 'ok', rows }; })
+    .catch(() => { netRank = { fase: 'error', rows: [] }; });
+}
+
+// ambos clientes simulan la misma pelea, así que ambos envían el mismo
+// resultado; el servidor lo anota en el ranking cuando los dos coinciden
+function netReportResult(winner) {
+  if (!netPlaying()) return;
+  const side = winner === p1 ? 0 : 1;
+  const score = computeNetScore(winner, winner === p1 ? p2 : p1);
+  netResult = { side, score, mine: side === net.side };
+  netSend({ t: 'result', winner: side, score });
+}
+
 function netConnect(name) {
+  netResult = null;
   net = {
     ws: null, fase: 'conectando', error: null,
     side: 0, seed: 0, myChar: null, foeChar: null,
@@ -43,6 +69,7 @@ function netConnect(name) {
   ws.onerror = () => { if (net && net.fase !== 'jugando') netFail('no se encontró el servidor'); };
   ws.onclose = () => {
     if (net && net.fase !== 'error') {
+      if (scene === 'matchEnd') { netLeave(); return; }   // el duelo ya terminó
       netFail(net.fase === 'jugando' ? 'se perdió la conexión' : 'el servidor cerró la conexión');
     }
   };
@@ -69,7 +96,7 @@ function netMsg(m) {
   } else if (m.t === 'i') {
     net.inputs[1 - net.side].set(m.k, m.v);
   } else if (m.t === 'bye') {
-    if (scene === 'matchEnd') netLeave2Title();   // duelo ya terminado: sin drama
+    if (scene === 'matchEnd') netLeave();         // duelo ya terminado: sin drama
     else netFail('el rival se desconectó');
   }
 }

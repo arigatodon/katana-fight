@@ -9,6 +9,10 @@ COPY index.html ./
 COPY js ./js
 COPY server/server.js ./server/
 
+# ranking en línea: el volumen katana_data (deploy.yml) se monta aquí;
+# el dir debe existir con dueño node para que el volumen herede permisos
+RUN mkdir -p server/data && chown node:node server/data
+
 ENV NODE_ENV=production PORT=8081
 EXPOSE 8081
 USER node

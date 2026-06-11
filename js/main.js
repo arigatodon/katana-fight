@@ -19,6 +19,7 @@ function draw(t) {
     case 'apuesta': drawApuesta(t); break;
     case 'firma':   drawFirma(t); break;
     case 'ranking': drawRanking(t); break;
+    case 'rankingOnline': drawRankingOnline(t); break;
     case 'fight':
     case 'roundEnd':
       drawFight(t);

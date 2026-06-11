@@ -9,14 +9,16 @@ const TITLE_OPTS = [
   { id: 'torneo', label: 'TORNEO · 5 duelos y un rival secreto' },
   { id: 'final',  label: 'TORNEO GOLPE FINAL · un corte decide' },
   { id: 'vs2',    label: '2 JUGADORES · elige tu guerrero' },
-  { id: 'online', label: 'DUELO EN LÍNEA · emparejamiento' },
-  { id: 'rank',   label: 'TABLA DE RÉCORDS' },
+  { id: 'online',  label: 'DUELO EN LÍNEA · emparejamiento' },
+  { id: 'rankNet', label: 'RANKING EN LÍNEA · los mejores duelistas' },
+  { id: 'rank',    label: 'TABLA DE RÉCORDS' },
 ];
 
 function titleChoose(i) {
   const id = TITLE_OPTS[i].id;
   sfxConfirm();
   if (id === 'rank') { scene = 'ranking'; return; }
+  if (id === 'rankNet') { fetchNetRanking(); scene = 'rankingOnline'; return; }
   if (id === 'vs2') { start2P(); return; }
   if (id === 'online') { enterNombre(); return; }
   startRun(id === 'final');
@@ -99,7 +101,7 @@ function handleMenus() {
     } else if (scene === 'matchEnd') {
       if (code === 'Enter' || code === 'Space') {
         sfxConfirm();
-        if (netActive()) netLeave2Title();
+        if (netActive() || netResult) leaveNetMatch();
         else continueRun();
       }
     } else if (scene === 'firma') {
@@ -109,7 +111,7 @@ function handleMenus() {
       if (code === 'KeyS' || code === 'ArrowDown')  { firmaChars[firmaPos] = cycleChar(firmaChars[firmaPos], -1); sfxSelect(); }
       if (code === 'Enter' || code === 'Space') { sfxConfirm(); submitScore(); }
       if (/^Key[A-Z]$/.test(code)) { firmaChars[firmaPos] = code[3]; firmaPos = Math.min(2, firmaPos + 1); sfxSelect(); }
-    } else if (scene === 'ranking') {
+    } else if (scene === 'ranking' || scene === 'rankingOnline') {
       if (code === 'Enter' || code === 'Space' || code === 'Escape') { sfxConfirm(); scene = 'title'; }
     }
   }
@@ -146,7 +148,7 @@ function handleMenus() {
       sfxConfirm(); netLeave2Title();
     } else if (scene === 'matchEnd') {
       sfxConfirm();
-      if (netActive()) netLeave2Title();
+      if (netActive() || netResult) leaveNetMatch();
       else continueRun();
     } else if (scene === 'firma') {
       for (let i = 0; i < 3; i++) {
@@ -157,10 +159,18 @@ function handleMenus() {
         }
       }
       if (Math.abs(tp.x - W / 2) < 110 && Math.abs(tp.y - H * 0.74) < 26) { sfxConfirm(); submitScore(); }
-    } else if (scene === 'ranking') {
+    } else if (scene === 'ranking' || scene === 'rankingOnline') {
       sfxConfirm(); scene = 'title';
     }
   }
+}
+
+// al salir del matchEnd online: cerrar la conexión y mostrar el ranking
+function leaveNetMatch() {
+  netLeave();
+  netResult = null;
+  fetchNetRanking();
+  scene = 'rankingOnline';
 }
 
 // ---------------- Pantallas ----------------
@@ -471,10 +481,16 @@ function drawMatchEnd(t) {
     drawCenterText(`llegaste al duelo ${run ? run.fight : '?'} de ${RUN_FIGHTS}`, 17, H * 0.46, '#c0b8a8', 'transparent');
     drawCenterText(`puntaje final: ${run ? run.score : 0}`, 20, H * 0.55, '#e8c050', 'transparent');
   } else {
-    // 2 jugadores
+    // 2 jugadores u online
     drawCenterText('勝 利', 64, H * 0.24, '#b03030', '#000');
     drawCenterText(`${matchWinner.name} VENCE`, 40, H * 0.4);
     drawCenterText(`${matchWinner.char.name} · ${matchWinner.wins} — ${matchWinner === p1 ? p2.wins : p1.wins}`, 20, H * 0.5, '#e8c050', 'transparent');
+    if (netResult) {
+      drawCenterText(netResult.mine
+        ? `+${netResult.score} puntos en el ranking en línea`
+        : 'tu rival suma puntos en el ranking en línea',
+        16, H * 0.6, '#9ad0e8', 'transparent');
+    }
   }
 
   if (Math.sin(t * 4) > -0.3) {
@@ -508,6 +524,42 @@ function drawFirma(t) {
   ctx.strokeRect(W / 2 - 110, H * 0.7, 220, 50);
   drawCenterText('CONFIRMAR', 20, H * 0.76, '#e8c050', 'transparent');
   ctx.textAlign = 'left';
+}
+
+// ranking en línea: lo sirve el servidor del juego (GET /ranking)
+function drawRankingOnline(t) {
+  drawBackground();
+  ctx.fillStyle = 'rgba(0,0,0,0.78)';
+  ctx.fillRect(0, 0, W, H);
+  drawCenterText('番付 — RANKING EN LÍNEA', 28, 56, '#e8c050');
+
+  if (!netRank || netRank.fase === 'cargando') {
+    const dots = '.'.repeat(1 + (Math.floor(t * 2) % 3));
+    drawCenterText('consultando al escriba' + ' ' + dots, 16, H * 0.5, '#c0b8a8', 'transparent');
+  } else if (netRank.fase === 'error') {
+    drawCenterText('no se pudo alcanzar el servidor', 16, H * 0.5, '#ff8a7a', 'transparent');
+  } else if (!netRank.rows.length) {
+    drawCenterText('aún nadie ha ganado un duelo en línea…', 16, H * 0.5, '#776', 'transparent');
+  } else {
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 13px "Courier New", monospace';
+    ctx.fillStyle = '#998';
+    ctx.fillText(' #   NOMBRE          PUNTOS    V    D   MEJOR RACHA', W / 2, 96);
+    for (let i = 0; i < netRank.rows.length; i++) {
+      const r = netRank.rows[i];
+      const y = 126 + i * 32;
+      const top = i === 0;
+      const isMe = r.name === save.onlineName;
+      ctx.font = (top ? 'bold 15px' : '13px') + ' "Courier New", monospace';
+      ctx.fillStyle = isMe ? '#9ad0e8' : top ? '#e8c050' : i < 3 ? '#d8c8a0' : '#b0a890';
+      const row = `${String(i + 1).padStart(2)}   ${r.name.padEnd(12)} ${String(r.pts).padStart(8)} ${String(r.wins).padStart(4)} ${String(r.losses).padStart(4)}   ${String(r.best).padStart(5)}`;
+      ctx.fillText(row + (isMe ? '  ◂ tú' : ''), W / 2, y);
+    }
+    ctx.textAlign = 'left';
+  }
+  if (Math.sin(t * 4) > -0.3) {
+    drawCenterText(TOUCH ? 'toca para volver' : 'ENTER para volver', 14, H - 22, '#c0b8a8', 'transparent');
+  }
 }
 
 function drawRanking(t) {

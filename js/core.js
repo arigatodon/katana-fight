@@ -54,7 +54,7 @@ function rnd() {
 // ---------------- Estado global ----------------
 // Escenas: title | nombre | online | choose | virtud | vs |
 //          destino | apuesta | fight | roundEnd | matchEnd |
-//          firma | ranking
+//          firma | ranking | rankingOnline
 let scene = 'title';
 let menuSel = 0;
 let vsCPU = true;

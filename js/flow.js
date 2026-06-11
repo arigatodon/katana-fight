@@ -211,6 +211,16 @@ function computeScore(p, foe) {
   return s;
 }
 
+// puntaje de un duelo online: solo términos que ambos clientes calculan
+// igual (nada de rachas ni torneo locales) — el servidor exige que coincidan
+function computeNetScore(p, foe) {
+  let s = 1000;                               // victoria
+  s += p.stats.perfects * 500;                // rondas sin recibir daño
+  s += p.stats.parries * 100;                 // bloqueos perfectos
+  if (foe.wins === WIN_ROUNDS - 1) s += 400;  // remontada al límite
+  return s;
+}
+
 function applyReputation(p) {
   const st = p.stats;
   if (st.taken === 0 && st.feints <= 1) save.rep.honor++;
@@ -222,6 +232,11 @@ function applyReputation(p) {
 function finishMatch() {
   scene = 'matchEnd';
   const winner = matchWinner;
+  if (netActive()) {       // online: el resultado va al ranking del servidor
+    netReportResult(winner);
+    pendingScore = null;
+    return;
+  }
   if (!run) {              // duelo suelto a 2 jugadores
     pendingScore = null;
     return;

@@ -6,7 +6,7 @@ Por defecto levanta su propio server (node + estáticos). Para probar
 contra un despliegue existente (contenedor, VPS):
     KATANA_URL='http://localhost:8090/?server=ws://localhost:8090' python3 e2e_online.py
 """
-import json, subprocess, time, sys, os, signal
+import json, subprocess, time, sys, os, signal, tempfile
 from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -17,7 +17,8 @@ server = None
 if not URL:
     URL = f'http://localhost:{WS_PORT}/?server=ws://localhost:{WS_PORT}'
     server = subprocess.Popen(['node', 'server/server.js'], cwd=ROOT,
-                              env={**os.environ, 'PORT': str(WS_PORT)},
+                              env={**os.environ, 'PORT': str(WS_PORT),
+                                   'DATA_DIR': tempfile.mkdtemp(prefix='katana_rank_')},
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     time.sleep(1.2)
 
@@ -110,6 +111,44 @@ try:
         A.close()
         wait_for(B, "scene === 'online' || scene === 'title'", 8000)
         check('aviso de desconexión', True, '· mensaje: ' + str(B.evaluate('net && net.error')))
+
+        # ranking en línea: dos sockets se emparejan, ambos reportan el
+        # mismo resultado y el ganador debe aparecer en GET /ranking
+        # (solo contra el server local: no ensucia un ranking real)
+        if server:
+            C = browser.new_page()
+            C.goto(URL)
+            C.wait_for_function("typeof netUrl === 'function'")
+            rank = C.evaluate("""async () => {
+              const mk = name => new Promise((res, rej) => {
+                const ws = new WebSocket(netUrl());
+                ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name }));
+                ws.onmessage = ev => {
+                  const m = JSON.parse(ev.data);
+                  if (m.t === 'match') res({ ws, side: m.side, name });
+                };
+                ws.onerror = () => rej(new Error('ws error'));
+              });
+              const pa = mk('RANKTESTA'), pb = mk('RANKTESTB');
+              const [a, b] = await Promise.all([pa, pb]);
+              const winner = 0;   // gana el lado 0, sea quien sea
+              for (const c of [a, b]) c.ws.send(JSON.stringify({ t: 'result', winner, score: 1500 }));
+              await new Promise(r => setTimeout(r, 400));
+              const ganador = a.side === winner ? a.name : b.name;
+              a.ws.close(); b.ws.close();
+              const rows = await (await fetch(netHttpBase() + '/ranking')).json();
+              return { ganador, rows };
+            }""")
+            fila = next((r for r in rank['rows'] if r['name'] == rank['ganador']), None)
+            check('victoria anotada en /ranking',
+                  fila is not None and fila['wins'] == 1 and fila['pts'] == 1500,
+                  json.dumps(fila))
+            perdedor = 'RANKTESTA' if rank['ganador'] == 'RANKTESTB' else 'RANKTESTB'
+            filaP = next((r for r in rank['rows'] if r['name'] == perdedor), None)
+            check('derrota anotada en /ranking',
+                  filaP is not None and filaP['losses'] == 1 and filaP['pts'] == 0,
+                  json.dumps(filaP))
+            C.close()
         browser.close()
 except Exception as e:
     fallos.append(f'EXCEPCIÓN: {type(e).__name__}: {e}')

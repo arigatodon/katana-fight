@@ -12,6 +12,11 @@ servers:
   web:
     - 72.60.156.215
 
+# ranking en línea: volumen con nombre para que ranking.json
+# sobreviva a los deploys (el contenedor es efímero)
+volumes:
+  - "katana_data:/app/server/data"
+
 proxy:
   ssl: true
   host: katana.igorv.org
