@@ -99,8 +99,8 @@ function startMatch() {
   p2 = makePlayer(W * 0.75, -1, rivalChar, vsCPU, vsCPU ? 'CPU' : 'JUGADOR 2',
                   randomFrom(VIRTUDES), cpuBoost);
   if (netActive()) {           // online: el lado rojo es el jugador 0
-    p1.name = net.side === 0 ? 'TÚ' : 'RIVAL';
-    p2.name = net.side === 1 ? 'TÚ' : 'RIVAL';
+    p1.name = net.side === 0 ? net.myName + ' (TÚ)' : net.foeName;
+    p2.name = net.side === 1 ? net.myName + ' (TÚ)' : net.foeName;
   }
   roundNum = 0;
   matchWinner = null;

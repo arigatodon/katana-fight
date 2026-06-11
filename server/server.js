@@ -50,9 +50,9 @@ function pair(a, b) {
   a.peer = b;
   b.peer = a;
   const seed = Math.floor(Math.random() * 0xffffffff);
-  a.send(JSON.stringify({ t: 'match', side: 0, seed }));
-  b.send(JSON.stringify({ t: 'match', side: 1, seed }));
-  console.log(new Date().toISOString(), 'duelo emparejado (semilla', seed + ')');
+  a.send(JSON.stringify({ t: 'match', side: 0, seed, foe: b.name }));
+  b.send(JSON.stringify({ t: 'match', side: 1, seed, foe: a.name }));
+  console.log(new Date().toISOString(), `duelo emparejado: ${a.name} vs ${b.name} (semilla ${seed})`);
 }
 
 wss.on('connection', ws => {
@@ -67,6 +67,8 @@ wss.on('connection', ws => {
       let m;
       try { m = JSON.parse(raw); } catch (e) { return; }
       if (m.t === 'join') {
+        ws.name = String(m.name || '').replace(/[^\p{L}\p{N} _.-]/gu, '')
+          .trim().slice(0, 12).toUpperCase() || 'ANÓNIMO';
         if (waiting && waiting !== ws && waiting.readyState === 1) {
           const w = waiting;
           waiting = null;

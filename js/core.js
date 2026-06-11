@@ -19,6 +19,7 @@ function loadSave() {
     const s = JSON.parse(localStorage.getItem(SAVE_KEY));
     if (s && s.rep) {
       s.unlocked = s.unlocked || [];
+      s.onlineName = s.onlineName || '';
       return s;
     }
   } catch (e) {}
@@ -28,6 +29,7 @@ function loadSave() {
     ranking: [],            // { firma, score, char, fecha, racha, titulo }
     unlocked: [],           // ids de personajes secretos vencidos
     lastFirma: 'AAA',
+    onlineName: '',         // nombre para el duelo en línea
   };
 }
 let save = loadSave();
@@ -50,8 +52,9 @@ function rnd() {
 }
 
 // ---------------- Estado global ----------------
-// Escenas: title | choose | virtud | vs | destino | apuesta |
-//          fight | roundEnd | matchEnd | firma | ranking
+// Escenas: title | nombre | online | choose | virtud | vs |
+//          destino | apuesta | fight | roundEnd | matchEnd |
+//          firma | ranking
 let scene = 'title';
 let menuSel = 0;
 let vsCPU = true;

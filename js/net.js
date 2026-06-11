@@ -27,10 +27,11 @@ function netUrl() {
   return 'ws://localhost:8081';     // desarrollo local o file:// → node server.js
 }
 
-function netConnect() {
+function netConnect(name) {
   net = {
     ws: null, fase: 'conectando', error: null,
     side: 0, seed: 0, myChar: null, foeChar: null,
+    myName: name || 'ANÓNIMO', foeName: '???',
     tick: 0, frame: [0, 0], inputs: [new Map(), new Map()],
     stallT: 0,
   };
@@ -38,7 +39,7 @@ function netConnect() {
   try { ws = new WebSocket(netUrl()); }
   catch (e) { netFail('no se pudo abrir la conexión'); return; }
   net.ws = ws;
-  ws.onopen = () => { net.fase = 'buscando'; netSend({ t: 'join' }); };
+  ws.onopen = () => { net.fase = 'buscando'; netSend({ t: 'join', name: net.myName }); };
   ws.onerror = () => { if (net && net.fase !== 'jugando') netFail('no se encontró el servidor'); };
   ws.onclose = () => {
     if (net && net.fase !== 'error') {
@@ -55,6 +56,7 @@ function netMsg(m) {
   if (m.t === 'match') {              // rival encontrado: a elegir guerrero
     net.side = m.side;
     net.seed = m.seed >>> 0;
+    net.foeName = String(m.foe || '???').slice(0, 12).toUpperCase() || '???';
     net.fase = 'eligiendo';
     vsCPU = false; modoFinal = false;
     run = null; runOver = null; runVirtud = null;

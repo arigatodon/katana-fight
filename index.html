@@ -18,6 +18,27 @@
     overflow: hidden;
   }
   #wrap { position: relative; }
+  /* nombre del guerrero (modo online): input real para que el
+     teclado del sistema funcione también en el móvil */
+  #nameInput {
+    display: none;
+    position: absolute;
+    left: 50%; top: 46%;
+    transform: translate(-50%, -50%);
+    width: 56%;
+    max-width: 420px;
+    padding: 12px 16px;
+    background: rgba(10, 10, 18, 0.92);
+    border: 2px solid #e8c050;
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    font-size: 26px;
+    font-weight: bold;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    outline: none;
+  }
   canvas {
     display: block;
     max-width: 100vw;
@@ -47,7 +68,7 @@
 </style>
 </head>
 <body>
-<div id="wrap"><canvas id="game" width="960" height="540"></canvas></div>
+<div id="wrap"><canvas id="game" width="960" height="540"></canvas><input id="nameInput" maxlength="12" autocomplete="off" spellcheck="false" placeholder="TU NOMBRE"></div>
 <div id="rotate">📱⟳<br>Gira tu teléfono<br><span style="font-size:15px;color:#998">el duelo se juega en horizontal</span></div>
 
 <!-- KATANA FIGHT — el orden de carga importa (scripts clásicos, sin módulos) -->

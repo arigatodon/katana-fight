@@ -51,9 +51,12 @@ try:
         for pg in (A, B):
             pg.wait_for_function("typeof scene !== 'undefined' && scene === 'title'")
 
-        # menú: bajar hasta DUELO EN LÍNEA (índice 3) y entrar
-        for pg in (A, B):
+        # menú: bajar hasta DUELO EN LÍNEA (índice 3), poner nombre y buscar
+        for pg, nombre in ((A, 'IGOR'), (B, 'ANA')):
             for _ in range(3): pg.keyboard.press('ArrowDown')
+            pg.keyboard.press('Enter')
+            wait_for(pg, "scene === 'nombre'")
+            pg.fill('#nameInput', nombre)
             pg.keyboard.press('Enter')
 
         wait_for(A, "scene === 'choose'"); wait_for(B, "scene === 'choose'")
@@ -61,6 +64,9 @@ try:
         sides = [A.evaluate('net.side'), B.evaluate('net.side')]
         check('lados repartidos', sorted(sides) == [0, 1], str(sides))
         check('misma semilla', A.evaluate('net.seed') == B.evaluate('net.seed'))
+        check('nombres intercambiados',
+              A.evaluate('net.foeName') == 'ANA' and B.evaluate('net.foeName') == 'IGOR',
+              f"A ve {A.evaluate('net.foeName')!r}, B ve {B.evaluate('net.foeName')!r}")
 
         for pg in (A, B): pg.evaluate(SNAP_HOOK)
 
@@ -71,6 +77,10 @@ try:
         check('ambos en presentación VS', True)
         wait_for(A, "scene === 'fight'", 20000); wait_for(B, "scene === 'fight'", 20000)
         check('ambos en la pelea', True)
+        hudA = A.evaluate("net.side === 0 ? p1.name : p2.name")
+        hudB = B.evaluate("net.side === 0 ? p1.name : p2.name")
+        check('nombres en el HUD', hudA == 'IGOR (TÚ)' and hudB == 'ANA (TÚ)',
+              f'{hudA!r} / {hudB!r}')
         # esperar el fin de la cuenta atrás: antes el movimiento está bloqueado
         wait_for(A, "scene === 'fight' && roundStartTimer <= 0", 10000)
         wait_for(B, "scene === 'fight' && roundStartTimer <= 0", 10000)

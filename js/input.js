@@ -9,6 +9,7 @@ let keyPressQueue = [];   // pulsaciones discretas (para los menús)
 let tapQueue = [];        // toques discretos (para los menús)
 
 window.addEventListener('keydown', e => {
+  if (e.target && e.target.id === 'nameInput') return;   // escribiendo el nombre
   initAudio();
   if (!e.repeat) keyPressQueue.push(e.code);
   keys[e.code] = true;

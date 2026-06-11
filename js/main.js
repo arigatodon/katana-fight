@@ -10,6 +10,7 @@ function draw(t) {
 
   switch (scene) {
     case 'title':   drawTitle(t); break;
+    case 'nombre':  drawNombre(t); break;
     case 'online':  drawOnline(t); break;
     case 'choose':  drawChoose(t); break;
     case 'virtud':  drawVirtud(t); break;
