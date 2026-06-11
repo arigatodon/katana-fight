@@ -10,6 +10,7 @@ const TITLE_OPTS = [
   { id: 'final',  label: 'TORNEO GOLPE FINAL · un corte decide' },
   { id: 'vs2',    label: '2 JUGADORES · elige tu guerrero' },
   { id: 'online', label: 'DUELO EN LÍNEA · emparejamiento' },
+  { id: 'ctl',    label: 'CONTROLES · cambia las teclas' },
   { id: 'rank',   label: 'TABLA DE RÉCORDS' },
 ];
 
@@ -37,7 +38,66 @@ function titleChoose(i) {
   if (id === 'rank') { setRankTab(rankTab); scene = 'ranking'; return; }
   if (id === 'vs2') { start2P(); return; }
   if (id === 'online') { enterNombre(); return; }
+  if (id === 'ctl') { enterControles(); return; }
   startRun(id === 'final');
+}
+
+// ---------------- Controles remapeables ----------------
+const CTL_ACTIONS = [
+  { id: 'left',   label: 'IZQUIERDA' },
+  { id: 'right',  label: 'DERECHA' },
+  { id: 'jump',   label: 'SALTAR' },
+  { id: 'down',   label: 'BAJAR' },
+  { id: 'attack', label: 'ATAQUE' },
+  { id: 'feint',  label: 'FINTA / GUARDIA' },
+];
+let ctlRow = 0;            // 0..5 acciones · 6 restaurar · 7 volver
+let ctlCol = 0;            // 0 = jugador 1 · 1 = jugador 2
+let ctlWaiting = false;    // esperando la pulsación de la tecla nueva
+
+function enterControles() {
+  ctlRow = 0; ctlCol = 0; ctlWaiting = false;
+  scene = 'controles';
+}
+
+// nombre legible de un e.code para mostrar en pantalla
+const KEY_LABELS = {
+  ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓',
+  Space: 'ESPACIO', Tab: 'TAB', Backspace: 'RETROCESO', CapsLock: 'BLOQ MAYÚS',
+  ShiftLeft: 'SHIFT IZQ', ShiftRight: 'SHIFT DER',
+  ControlLeft: 'CTRL IZQ', ControlRight: 'CTRL DER',
+  AltLeft: 'ALT IZQ', AltRight: 'ALT DER',
+  Semicolon: ';', Quote: '\'', Comma: ',', Period: '.', Slash: '/',
+  Backslash: '\\', BracketLeft: '[', BracketRight: ']',
+  Minus: '-', Equal: '=', Backquote: '`', IntlBackslash: '<',
+};
+function keyLabel(code) {
+  if (!code) return '—';
+  if (code.startsWith('Key')) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  if (code.startsWith('Numpad')) return 'NUM ' + code.slice(6).toUpperCase();
+  return KEY_LABELS[code] || code.toUpperCase();
+}
+
+// asigna la tecla a la acción seleccionada; si ya estaba en uso, se intercambian
+function asignarTecla(code) {
+  const pl = ctlCol === 0 ? 'p1' : 'p2';
+  const action = CTL_ACTIONS[ctlRow].id;
+  for (const q of ['p1', 'p2']) {
+    for (const a in save.keymap[q]) {
+      if (save.keymap[q][a] === code && !(q === pl && a === action)) {
+        save.keymap[q][a] = save.keymap[pl][action];
+      }
+    }
+  }
+  save.keymap[pl][action] = code;
+  persist();
+}
+
+// posición vertical de cada fila (acciones, restaurar, volver)
+function ctlRowY(i) {
+  if (i < CTL_ACTIONS.length) return 152 + i * 38;
+  return i === CTL_ACTIONS.length ? 408 : 450;
 }
 
 // ---------------- Nombre para el duelo en línea ----------------
@@ -153,24 +213,41 @@ function handleMenus() {
       if (code === 'KeyW' || code === 'ArrowUp')   { menuSel = (menuSel + TITLE_OPTS.length - 1) % TITLE_OPTS.length; sfxSelect(); }
       if (code === 'KeyS' || code === 'ArrowDown') { menuSel = (menuSel + 1) % TITLE_OPTS.length; sfxSelect(); }
       if (code === 'Enter' || code === 'Space') titleChoose(menuSel);
+    } else if (scene === 'controles') {
+      if (ctlWaiting) {
+        // la siguiente tecla pulsada queda asignada (ESC cancela, ENTER se reserva)
+        if (code === 'Escape') { ctlWaiting = false; sfxSelect(); }
+        else if (code !== 'Enter') { asignarTecla(code); ctlWaiting = false; sfxConfirm(); }
+      } else {
+        const nRows = CTL_ACTIONS.length + 2;
+        if (code === 'KeyW' || code === 'ArrowUp')   { ctlRow = (ctlRow + nRows - 1) % nRows; sfxSelect(); }
+        if (code === 'KeyS' || code === 'ArrowDown') { ctlRow = (ctlRow + 1) % nRows; sfxSelect(); }
+        if (['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight'].includes(code) && ctlRow < CTL_ACTIONS.length) { ctlCol = 1 - ctlCol; sfxSelect(); }
+        if (code === 'Enter' || code === 'Space') {
+          if (ctlRow < CTL_ACTIONS.length) { ctlWaiting = true; sfxSelect(); }
+          else if (ctlRow === CTL_ACTIONS.length) { save.keymap = defaultKeymap(); persist(); sfxConfirm(); }
+          else { sfxConfirm(); scene = 'title'; }
+        }
+        if (code === 'Escape') { sfxConfirm(); scene = 'title'; }
+      }
     } else if (scene === 'choose') {
       const n = choosePool().length;
       if (code === 'KeyA' || code === 'ArrowLeft')  { chooseSel = (chooseSel + n - 1) % n; sfxSelect(); }
       if (code === 'KeyD' || code === 'ArrowRight') { chooseSel = (chooseSel + 1) % n; sfxSelect(); }
       if ((code === 'KeyW' || code === 'ArrowUp') && chooseSel - CHOOSE_COLS >= 0)   { chooseSel -= CHOOSE_COLS; sfxSelect(); }
       if ((code === 'KeyS' || code === 'ArrowDown') && chooseSel + CHOOSE_COLS < n)  { chooseSel += CHOOSE_COLS; sfxSelect(); }
-      if (code === 'Enter' || code === 'Space' || code === 'KeyF' || code === 'KeyK') confirmChoose();
+      if (code === 'Enter' || code === 'Space' || code === save.keymap.p1.attack || code === save.keymap.p2.attack) confirmChoose();
     } else if (scene === 'virtud') {
       if (code === 'KeyA' || code === 'ArrowLeft')  { virtudSel = (virtudSel + 2) % 3; sfxSelect(); }
       if (code === 'KeyD' || code === 'ArrowRight') { virtudSel = (virtudSel + 1) % 3; sfxSelect(); }
-      if (code === 'Enter' || code === 'Space' || code === 'KeyF') {
+      if (code === 'Enter' || code === 'Space' || code === save.keymap.p1.attack) {
         sfxConfirm();
         runVirtud = virtudOpts[virtudSel];
         nextFight();
       }
     } else if (scene === 'vs') {
       // online la presentación avanza sola: saltarla desincronizaría el lockstep
-      if (!netActive() && (code === 'Enter' || code === 'Space' || code === 'KeyF' || code === 'KeyK')) { sfxConfirm(); startMatch(); }
+      if (!netActive() && (code === 'Enter' || code === 'Space' || code === save.keymap.p1.attack || code === save.keymap.p2.attack)) { sfxConfirm(); startMatch(); }
     } else if (scene === 'nombre') {
       // mientras se escribe, el input retiene las teclas; esto cubre
       // el caso de confirmar/cancelar con el campo sin foco
@@ -220,6 +297,20 @@ function handleMenus() {
           else { menuSel = i; sfxSelect(); }
         }
       }
+    } else if (scene === 'controles') {
+      if (ctlWaiting) { ctlWaiting = false; continue; }   // un toque cancela la captura
+      let hit = false;
+      for (let i = 0; i < CTL_ACTIONS.length; i++) {
+        if (Math.abs(tp.y - (ctlRowY(i) - 6)) < 19) {
+          const col = tp.x < W / 2 ? 0 : 1;
+          if (ctlRow === i && ctlCol === col) { ctlWaiting = true; }
+          else { ctlRow = i; ctlCol = col; }
+          sfxSelect();
+          hit = true;
+        }
+      }
+      if (Math.abs(tp.y - (ctlRowY(CTL_ACTIONS.length) - 6)) < 20) { ctlRow = CTL_ACTIONS.length; save.keymap = defaultKeymap(); persist(); sfxConfirm(); hit = true; }
+      if (Math.abs(tp.y - (ctlRowY(CTL_ACTIONS.length + 1) - 6)) < 20 || (!hit && tp.y > H * 0.92)) { sfxConfirm(); scene = 'title'; }
     } else if (scene === 'choose') {
       const pool = choosePool();
       for (let i = 0; i < pool.length; i++) {
@@ -328,6 +419,64 @@ function drawTitle(t) {
   ctx.textAlign = 'left';
 }
 
+// pantalla de controles: remapear las teclas de ambos jugadores
+function drawControles(t) {
+  drawBackground();
+  ctx.fillStyle = 'rgba(0,0,0,0.78)';
+  ctx.fillRect(0, 0, W, H);
+  drawCenterText('操作 — CONTROLES', 28, 56, '#e8c050');
+  drawCenterText('elige una acción y asígnale la tecla que quieras', 13, 86, '#c0b8a8', 'transparent');
+
+  const X1 = W / 2 - 250, X2 = W / 2 + 250;
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 15px "Courier New", monospace';
+  ctx.fillStyle = '#ff8a7a';
+  ctx.fillText('JUGADOR 1', X1, 122);
+  ctx.fillStyle = '#8ab4ff';
+  ctx.fillText('JUGADOR 2', X2, 122);
+
+  for (let i = 0; i < CTL_ACTIONS.length; i++) {
+    const y = ctlRowY(i);
+    ctx.font = '14px "Courier New", monospace';
+    ctx.fillStyle = '#998';
+    ctx.fillText(CTL_ACTIONS[i].label, W / 2, y);
+    for (const [col, x, pl] of [[0, X1, 'p1'], [1, X2, 'p2']]) {
+      const sel = ctlRow === i && ctlCol === col;
+      const waiting = sel && ctlWaiting;
+      if (sel) {
+        ctx.fillStyle = 'rgba(232,192,80,0.16)';
+        ctx.fillRect(x - 95, y - 19, 190, 27);
+        ctx.strokeStyle = '#e8c050';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x - 95, y - 19, 190, 27);
+      }
+      ctx.font = 'bold 15px "Courier New", monospace';
+      ctx.fillStyle = waiting ? (Math.sin(t * 8) > 0 ? '#e8c050' : '#776')
+                    : sel ? '#fff' : '#b0a890';
+      ctx.fillText(waiting ? 'pulsa una tecla…' : keyLabel(save.keymap[pl][CTL_ACTIONS[i].id]), x, y);
+    }
+  }
+
+  const extras = ['RESTAURAR TECLAS ORIGINALES', 'VOLVER'];
+  for (let j = 0; j < extras.length; j++) {
+    const row = CTL_ACTIONS.length + j;
+    const sel = ctlRow === row;
+    const blink = sel && Math.sin(t * 6) > -0.2;
+    drawCenterText(
+      (sel ? '» ' : '  ') + extras[j] + (sel ? ' «' : '  '),
+      17, ctlRowY(row),
+      blink || sel ? '#e8c050' : '#888',
+      sel ? '#b03030' : 'transparent');
+  }
+
+  ctx.textAlign = 'left';
+  drawCenterText(
+    ctlWaiting ? 'pulsa la tecla nueva · ESC cancela'
+    : TOUCH ? 'toca dos veces una tecla y pulsa la nueva en tu teclado'
+    : 'W/S elegir · A/D cambiar de jugador · ENTER asignar · ESC volver',
+    13, H - 22, '#776', 'transparent');
+}
+
 // nombre del guerrero antes de buscar duelo (el input HTML flota encima)
 function drawNombre(t) {
   drawBackground();
@@ -417,7 +566,7 @@ function drawChoose(t) {
   }
   ctx.textAlign = 'left';
   drawCenterText(pool[chooseSel].desc, 16, H * 0.86, '#c0b8a8', 'transparent');
-  drawCenterText(TOUCH ? 'toca dos veces para elegir' : 'A/D/W/S elegir · F aceptar', 13, H * 0.94, '#776', 'transparent');
+  drawCenterText(TOUCH ? 'toca dos veces para elegir' : `A/D/W/S elegir · ${keyLabel(save.keymap.p1.attack)} aceptar`, 13, H * 0.94, '#776', 'transparent');
 }
 
 // presentación del duelo (automática, se puede saltar)
@@ -477,7 +626,7 @@ function drawVS(t) {
     drawCenterText(`don del torneo: ${runVirtud.name} — ${runVirtud.desc}`, 13, H * 0.76, '#9ad0e8', 'transparent');
   }
   if (!netActive() && Math.sin(t * 4) > -0.3) {
-    drawCenterText(TOUCH ? 'toca para desenvainar' : 'F para desenvainar', 14, H * 0.88, '#c0b8a8', 'transparent');
+    drawCenterText(TOUCH ? 'toca para desenvainar' : `${keyLabel(save.keymap.p1.attack)} para desenvainar`, 14, H * 0.88, '#c0b8a8', 'transparent');
   }
 }
 
@@ -519,7 +668,7 @@ function drawVirtud(t) {
     ctx.fillText(v.desc, bx, H * 0.7 - lift);
   }
   ctx.textAlign = 'left';
-  drawCenterText(TOUCH ? 'toca dos veces para aceptar el don' : 'A/D elegir · F aceptar', 13, H * 0.94, '#776', 'transparent');
+  drawCenterText(TOUCH ? 'toca dos veces para aceptar el don' : `A/D elegir · ${keyLabel(save.keymap.p1.attack)} aceptar`, 13, H * 0.94, '#776', 'transparent');
 }
 
 function drawDestinoScene(t) {

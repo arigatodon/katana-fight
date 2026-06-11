@@ -16,6 +16,14 @@ const WIN_ROUNDS = 2;          // rondas para ganar un duelo (mejor de 3)
 const VIDA_MAX = 100;
 const RUN_FIGHTS = 6;          // torneo: 5 duelos al azar + el jefe secreto
 
+// ---------------- Controles remapeables ----------------
+// teclas por defecto de cada jugador; se guardan junto al save
+const KEYMAP_DEFAULT = {
+  p1: { left: 'KeyA', right: 'KeyD', jump: 'KeyW', down: 'KeyS', attack: 'KeyF', feint: 'KeyG' },
+  p2: { left: 'ArrowLeft', right: 'ArrowRight', jump: 'ArrowUp', down: 'ArrowDown', attack: 'KeyK', feint: 'KeyL' },
+};
+function defaultKeymap() { return JSON.parse(JSON.stringify(KEYMAP_DEFAULT)); }
+
 // ---------------- Guardado persistente ----------------
 const SAVE_KEY = 'katana_fight_save_v1';
 function loadSave() {
@@ -27,6 +35,9 @@ function loadSave() {
       // migración: el ranking único pasa a una tabla por categoría
       s.rankings = s.rankings || { torneo: s.ranking || [], final: [] };
       delete s.ranking;
+      // migración: teclas remapeables (rellena las acciones que falten)
+      s.keymap = s.keymap || {};
+      for (const pl of ['p1', 'p2']) s.keymap[pl] = Object.assign({}, KEYMAP_DEFAULT[pl], s.keymap[pl]);
       return s;
     }
   } catch (e) {}
@@ -40,6 +51,7 @@ function loadSave() {
     unlocked: [],           // ids de personajes secretos vencidos
     lastFirma: 'AAA',
     onlineName: '',         // nombre para el duelo en línea
+    keymap: defaultKeymap(),
   };
 }
 let save = loadSave();
@@ -62,8 +74,8 @@ function rnd() {
 }
 
 // ---------------- Estado global ----------------
-// Escenas: title | nombre | online | choose | virtud | vs |
-//          destino | apuesta | fight | roundEnd | matchEnd |
+// Escenas: title | controles | nombre | online | choose | virtud |
+//          vs | destino | apuesta | fight | roundEnd | matchEnd |
 //          apoyo | comentario | firma | ranking
 let scene = 'title';
 let menuSel = 0;

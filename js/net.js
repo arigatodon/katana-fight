@@ -140,13 +140,16 @@ function netLeave2Title() { netLeave(); scene = 'title'; }
 
 // ---------------- Lockstep ----------------
 function packLocalInput() {
+  // teclas remapeables del J1 (solo cambia la lectura local;
+  // los bits del protocolo son fijos para ambos clientes)
+  const m = save.keymap.p1;
   let v = 0;
-  if (keys['KeyA'] || touchState.left) v |= 1;
-  if (keys['KeyD'] || touchState.right) v |= 2;
-  if (keys['KeyW'] || keys['Space'] || touchState.jump) v |= 4;
-  if (keys['KeyF'] || touchState.attack) v |= 8;
-  if (keys['KeyG'] || touchState.feint) v |= 16;
-  if (keys['KeyS'] || touchState.down) v |= 32;     // bajar de la baranda
+  if (keys[m.left] || touchState.left) v |= 1;
+  if (keys[m.right] || touchState.right) v |= 2;
+  if (keys[m.jump] || (keys['Space'] && keymapLibre('Space')) || touchState.jump) v |= 4;
+  if (keys[m.attack] || touchState.attack) v |= 8;
+  if (keys[m.feint] || touchState.feint) v |= 16;
+  if (keys[m.down] || touchState.down) v |= 32;     // bajar de la baranda
   return v;
 }
 

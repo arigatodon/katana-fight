@@ -14,6 +14,7 @@ window.addEventListener('keydown', e => {
   if (!e.repeat) keyPressQueue.push(e.code);
   keys[e.code] = true;
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+  if (ctlWaiting) e.preventDefault();   // capturando una tecla nueva (Tab, etc.)
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
@@ -58,27 +59,35 @@ cvs.addEventListener('mousedown', e => {
   tapQueue.push(canvasPos(e));
 });
 
-// lectura por jugador durante el combate
+// ¿la tecla está sin asignar en ambos keymaps?
+function keymapLibre(code) {
+  return !Object.values(save.keymap.p1).includes(code) &&
+         !Object.values(save.keymap.p2).includes(code);
+}
+
+// lectura por jugador durante el combate (teclas remapeables en save.keymap)
 function readInput(p, isP1, foe, dt) {
   if (netPlaying()) return unpackInput(net.frame[isP1 ? 0 : 1]);
   if (p.isCPU) return updateAI(p, foe, dt);
+  const m = isP1 ? save.keymap.p1 : save.keymap.p2;
   if (isP1) {
     return {
-      left:   keys['KeyA'] || touchState.left,
-      right:  keys['KeyD'] || touchState.right,
-      jump:   keys['KeyW'] || keys['Space'] || touchState.jump,
-      down:   keys['KeyS'] || touchState.down,
-      attack: keys['KeyF'] || touchState.attack,
-      feint:  keys['KeyG'] || touchState.feint,
+      left:   keys[m.left] || touchState.left,
+      right:  keys[m.right] || touchState.right,
+      // ESPACIO sigue siendo salto alternativo mientras nadie lo reclame
+      jump:   keys[m.jump] || (keys['Space'] && keymapLibre('Space')) || touchState.jump,
+      down:   keys[m.down] || touchState.down,
+      attack: keys[m.attack] || touchState.attack,
+      feint:  keys[m.feint] || touchState.feint,
       guard:  false,
     };
   }
   return {
-    left: keys['ArrowLeft'], right: keys['ArrowRight'],
-    jump: keys['ArrowUp'],
-    down: keys['ArrowDown'],
-    attack: keys['KeyK'],
-    feint: keys['KeyL'],
+    left: keys[m.left], right: keys[m.right],
+    jump: keys[m.jump],
+    down: keys[m.down],
+    attack: keys[m.attack],
+    feint: keys[m.feint],
     guard: false,
   };
 }

@@ -9,7 +9,8 @@ function draw(t) {
   if (shake > 0) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
 
   switch (scene) {
-    case 'title':   drawTitle(t); break;
+    case 'title':     drawTitle(t); break;
+    case 'controles': drawControles(t); break;
     case 'nombre':  drawNombre(t); break;
     case 'online':  drawOnline(t); break;
     case 'choose':  drawChoose(t); break;
