@@ -1,2 +1,3 @@
 .kamal/secrets.local
+.kamal/registry-password
 server/node_modules/
