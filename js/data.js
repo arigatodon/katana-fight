@@ -82,7 +82,7 @@ const SECRET_CHARS = [
 
 function allChars() { return CHARS.concat(SECRET_CHARS); }
 function charUnlocked(c) { return !c.secret || save.unlocked.includes(c.id); }
-function randomFrom(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function randomFrom(arr) { return arr[Math.floor(rnd() * arr.length)]; }
 
 // ---------------- Destino del Duelo (condición aleatoria por ronda) ----------------
 const DESTINOS = [
@@ -132,7 +132,7 @@ const RASGOS = [
   { id: 'sed',    name: 'SED DE VICTORIA',      prob: 0.05, desc: 'Resistes más al borde de la muerte' },
 ];
 function rollRasgo() {
-  const r = Math.random();
+  const r = rnd();
   let acc = 0;
   for (const rg of RASGOS) { acc += rg.prob; if (r < acc) return rg; }
   return null;

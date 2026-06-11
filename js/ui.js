@@ -8,7 +8,8 @@
 const TITLE_OPTS = [
   { id: 'torneo', label: 'TORNEO · 5 duelos y un rival secreto' },
   { id: 'final',  label: 'TORNEO GOLPE FINAL · un corte decide' },
-  { id: 'vs2',    label: '2 JUGADORES · duelo al azar' },
+  { id: 'vs2',    label: '2 JUGADORES · elige tu guerrero' },
+  { id: 'online', label: 'DUELO EN LÍNEA · emparejamiento' },
   { id: 'rank',   label: 'TABLA DE RÉCORDS' },
 ];
 
@@ -17,6 +18,7 @@ function titleChoose(i) {
   sfxConfirm();
   if (id === 'rank') { scene = 'ranking'; return; }
   if (id === 'vs2') { start2P(); return; }
+  if (id === 'online') { netConnect(); scene = 'online'; return; }
   startRun(id === 'final');
 }
 
@@ -33,12 +35,32 @@ function handleMenus() {
       if (code === 'KeyW' || code === 'ArrowUp')   { menuSel = (menuSel + TITLE_OPTS.length - 1) % TITLE_OPTS.length; sfxSelect(); }
       if (code === 'KeyS' || code === 'ArrowDown') { menuSel = (menuSel + 1) % TITLE_OPTS.length; sfxSelect(); }
       if (code === 'Enter' || code === 'Space') titleChoose(menuSel);
+    } else if (scene === 'choose') {
+      const n = choosePool().length;
+      if (code === 'KeyA' || code === 'ArrowLeft')  { chooseSel = (chooseSel + n - 1) % n; sfxSelect(); }
+      if (code === 'KeyD' || code === 'ArrowRight') { chooseSel = (chooseSel + 1) % n; sfxSelect(); }
+      if ((code === 'KeyW' || code === 'ArrowUp') && chooseSel - CHOOSE_COLS >= 0)   { chooseSel -= CHOOSE_COLS; sfxSelect(); }
+      if ((code === 'KeyS' || code === 'ArrowDown') && chooseSel + CHOOSE_COLS < n)  { chooseSel += CHOOSE_COLS; sfxSelect(); }
+      if (code === 'Enter' || code === 'Space' || code === 'KeyF' || code === 'KeyK') confirmChoose();
     } else if (scene === 'virtud') {
       if (code === 'KeyA' || code === 'ArrowLeft')  { virtudSel = (virtudSel + 2) % 3; sfxSelect(); }
       if (code === 'KeyD' || code === 'ArrowRight') { virtudSel = (virtudSel + 1) % 3; sfxSelect(); }
-      if (code === 'Enter' || code === 'Space' || code === 'KeyF') { sfxConfirm(); startMatch(); }
+      if (code === 'Enter' || code === 'Space' || code === 'KeyF') {
+        sfxConfirm();
+        runVirtud = virtudOpts[virtudSel];
+        nextFight();
+      }
+    } else if (scene === 'vs') {
+      // online la presentación avanza sola: saltarla desincronizaría el lockstep
+      if (!netActive() && (code === 'Enter' || code === 'Space' || code === 'KeyF' || code === 'KeyK')) { sfxConfirm(); startMatch(); }
+    } else if (scene === 'online') {
+      if (code === 'Enter' || code === 'Space' || code === 'Escape') { sfxConfirm(); netLeave2Title(); }
     } else if (scene === 'matchEnd') {
-      if (code === 'Enter' || code === 'Space') { sfxConfirm(); continueRun(); }
+      if (code === 'Enter' || code === 'Space') {
+        sfxConfirm();
+        if (netActive()) netLeave2Title();
+        else continueRun();
+      }
     } else if (scene === 'firma') {
       if (code === 'KeyA' || code === 'ArrowLeft')  { firmaPos = (firmaPos + 2) % 3; sfxSelect(); }
       if (code === 'KeyD' || code === 'ArrowRight') { firmaPos = (firmaPos + 1) % 3; sfxSelect(); }
@@ -58,16 +80,31 @@ function handleMenus() {
           else { menuSel = i; sfxSelect(); }
         }
       }
+    } else if (scene === 'choose') {
+      const pool = choosePool();
+      for (let i = 0; i < pool.length; i++) {
+        const c = chooseCell(i);
+        if (Math.abs(tp.x - c.x) < 86 && Math.abs(tp.y - c.y) < 54) {
+          if (chooseSel === i) confirmChoose();
+          else { chooseSel = i; sfxSelect(); }
+        }
+      }
     } else if (scene === 'virtud') {
       for (let i = 0; i < 3; i++) {
         const bx = W / 2 + (i - 1) * 260;
         if (Math.abs(tp.x - bx) < 120 && Math.abs(tp.y - H * 0.55) < 100) {
-          if (virtudSel === i) { sfxConfirm(); startMatch(); }
+          if (virtudSel === i) { sfxConfirm(); runVirtud = virtudOpts[virtudSel]; nextFight(); }
           else { virtudSel = i; sfxSelect(); }
         }
       }
+    } else if (scene === 'vs') {
+      if (!netActive()) { sfxConfirm(); startMatch(); }
+    } else if (scene === 'online') {
+      sfxConfirm(); netLeave2Title();
     } else if (scene === 'matchEnd') {
-      sfxConfirm(); continueRun();
+      sfxConfirm();
+      if (netActive()) netLeave2Title();
+      else continueRun();
     } else if (scene === 'firma') {
       for (let i = 0; i < 3; i++) {
         const lx = W / 2 + (i - 1) * 80;
@@ -123,42 +160,146 @@ function drawTitle(t) {
   ctx.textAlign = 'left';
 }
 
-// presentación del duelo + elección de virtud
+// pantalla del duelo en línea: conexión, búsqueda y errores
+function drawOnline(t) {
+  drawBackground();
+  ctx.fillStyle = 'rgba(0,0,0,0.75)';
+  ctx.fillRect(0, 0, W, H);
+  drawCenterText('DUELO EN LÍNEA', 30, H * 0.18, '#e8c050');
+
+  const pulse = 1 + Math.sin(t * 3) * 0.06;
+  ctx.save();
+  ctx.translate(W / 2, H * 0.48);
+  ctx.scale(pulse, pulse);
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 96px serif';
+  ctx.shadowColor = '#b03030';
+  ctx.shadowBlur = 35;
+  ctx.fillStyle = net && net.fase === 'error' ? '#886' : '#fff';
+  ctx.fillText('縁', 0, 30);
+  ctx.restore();
+
+  let msg = '';
+  if (!net || net.fase === 'error') msg = (net && net.error) || 'sin conexión';
+  else if (net.fase === 'conectando') msg = 'forjando la conexión…';
+  else if (net.fase === 'buscando') msg = 'buscando un rival digno…';
+  else if (net.fase === 'esperando') msg = 'el rival elige a su guerrero…';
+  const dots = '.'.repeat(1 + (Math.floor(t * 2) % 3));
+  const searching = net && net.fase !== 'error';
+  drawCenterText(msg + (searching ? ' ' + dots : ''), 18, H * 0.68,
+                 searching ? '#c0b8a8' : '#ff8a7a', 'transparent');
+  if (Math.sin(t * 4) > -0.3) {
+    drawCenterText(
+      searching ? (TOUCH ? 'toca para cancelar' : 'ESC para cancelar')
+                : (TOUCH ? 'toca para volver' : 'ENTER para volver'),
+      13, H * 0.88, '#776', 'transparent');
+  }
+}
+
+// selección de personaje (torneo: J1 · 2 jugadores: J1 y luego J2 · online: cada cual el suyo)
+function drawChoose(t) {
+  drawBackground();
+  ctx.fillStyle = 'rgba(0,0,0,0.72)';
+  ctx.fillRect(0, 0, W, H);
+
+  const pool = choosePool();
+  const who = vsCPU || netActive() ? '' : (choosingP === 0 ? ' — JUGADOR 1' : ' — JUGADOR 2');
+  drawCenterText('ELIGE A TU GUERRERO' + who, 24, 64,
+                 !vsCPU && !netActive() && choosingP === 1 ? '#8ab4ff' : '#e8c050');
+
+  for (let i = 0; i < pool.length; i++) {
+    const ch = pool[i];
+    const c = chooseCell(i);
+    const sel = chooseSel === i;
+    const lift = sel ? Math.sin(t * 4) * 3 : 0;
+    ctx.fillStyle = sel ? 'rgba(232,192,80,0.16)' : 'rgba(255,255,255,0.05)';
+    ctx.fillRect(c.x - 82, c.y - 50 - lift, 164, 100);
+    ctx.strokeStyle = sel ? '#e8c050' : ch.secret ? 'rgba(154,208,232,0.5)' : 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = sel ? 3 : 1;
+    ctx.strokeRect(c.x - 82, c.y - 50 - lift, 164, 100);
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 38px serif';
+    ctx.fillStyle = sel ? '#e8c050' : ch.secret ? '#9ad0e8' : '#998';
+    ctx.fillText(ch.kanji, c.x, c.y + 8 - lift);
+    ctx.font = 'bold 11px "Courier New", monospace';
+    ctx.fillStyle = sel ? '#fff' : '#bbb';
+    ctx.fillText(ch.name, c.x, c.y + 34 - lift);
+  }
+  ctx.textAlign = 'left';
+  drawCenterText(pool[chooseSel].desc, 16, H * 0.86, '#c0b8a8', 'transparent');
+  drawCenterText(TOUCH ? 'toca dos veces para elegir' : 'A/D/W/S elegir · F aceptar', 13, H * 0.94, '#776', 'transparent');
+}
+
+// presentación del duelo (automática, se puede saltar)
+function drawVS(t) {
+  drawBackground();
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(0, 0, W, H);
+
+  const isBoss = run && run.fight === RUN_FIGHTS;
+  if (run) {
+    drawCenterText(isBoss ? '¡EL RIVAL SECRETO TE ESPERA!' : `DUELO ${run.fight} DE ${RUN_FIGHTS}`, 24, H * 0.14,
+                   isBoss ? '#ff8060' : '#c0b8a8', isBoss ? '#b03030' : 'transparent');
+  } else {
+    drawCenterText(netActive() ? 'DUELO EN LÍNEA' : 'DUELO A 2 JUGADORES', 24, H * 0.14, '#c0b8a8', 'transparent');
+  }
+
+  ctx.textAlign = 'center';
+  const hidden = isBoss && !charUnlocked(run.boss);
+  const rivalName = hidden ? '？？？' : rivalChar.name;
+  const rivalKanji = hidden ? '謎' : rivalChar.kanji;
+  ctx.font = 'bold 84px serif';
+  ctx.shadowBlur = 30;
+  ctx.shadowColor = '#b03030';
+  ctx.fillStyle = '#c03434';
+  ctx.fillText(playerChar.kanji, W * 0.3, H * 0.48);
+  ctx.shadowColor = '#3050a0';
+  ctx.fillStyle = '#4a80d8';
+  ctx.fillText(rivalKanji, W * 0.7, H * 0.48);
+  ctx.shadowBlur = 0;
+  ctx.font = 'bold 17px "Courier New", monospace';
+  ctx.fillStyle = '#fff';
+  ctx.fillText(playerChar.name, W * 0.3, H * 0.58);
+  ctx.fillText(rivalName, W * 0.7, H * 0.58);
+  ctx.font = '12px "Courier New", monospace';
+  ctx.fillStyle = '#998';
+  ctx.fillText(playerChar.desc, W * 0.3, H * 0.63);
+  ctx.fillText(hidden ? 'véncelo y se unirá a tu baraja' : rivalChar.desc, W * 0.7, H * 0.63);
+
+  const pulse = 1 + Math.sin(t * 5) * 0.08;
+  ctx.save();
+  ctx.translate(W / 2, H * 0.52);
+  ctx.scale(pulse, pulse);
+  ctx.font = 'bold 30px "Courier New", monospace';
+  ctx.fillStyle = '#e8c050';
+  ctx.fillText('VS', 0, 0);
+  ctx.restore();
+  ctx.textAlign = 'left';
+
+  if (runVirtud) {
+    drawCenterText(`don del torneo: ${runVirtud.name} — ${runVirtud.desc}`, 13, H * 0.76, '#9ad0e8', 'transparent');
+  }
+  if (!netActive() && Math.sin(t * 4) > -0.3) {
+    drawCenterText(TOUCH ? 'toca para desenvainar' : 'F para desenvainar', 14, H * 0.88, '#c0b8a8', 'transparent');
+  }
+}
+
+// elección de virtud: un solo don para todo el torneo
 function drawVirtud(t) {
   drawBackground();
   ctx.fillStyle = 'rgba(0,0,0,0.65)';
   ctx.fillRect(0, 0, W, H);
 
-  const isBoss = run && run.fight === RUN_FIGHTS;
-  if (run) {
-    drawCenterText(isBoss ? '¡EL RIVAL SECRETO TE ESPERA!' : `DUELO ${run.fight} DE ${RUN_FIGHTS}`, 22, H * 0.1,
-                   isBoss ? '#ff8060' : '#c0b8a8', isBoss ? '#b03030' : 'transparent');
-  } else {
-    drawCenterText('DUELO A 2 JUGADORES', 22, H * 0.1, '#c0b8a8', 'transparent');
-  }
-
-  // el destino reparte los guerreros: muestra el enfrentamiento
   ctx.textAlign = 'center';
-  const rivalName = isBoss && !charUnlocked(run.boss) ? '？？？' : rivalChar.name;
-  const rivalKanji = isBoss && !charUnlocked(run.boss) ? '謎' : rivalChar.kanji;
-  ctx.font = 'bold 30px serif';
+  ctx.font = 'bold 40px serif';
   ctx.fillStyle = '#c03434';
-  ctx.fillText(playerChar.kanji, W * 0.3, H * 0.2);
-  ctx.fillStyle = '#4a80d8';
-  ctx.fillText(rivalKanji, W * 0.7, H * 0.2);
-  ctx.font = 'bold 14px "Courier New", monospace';
+  ctx.fillText(playerChar.kanji, W / 2, H * 0.15);
+  ctx.font = 'bold 15px "Courier New", monospace';
   ctx.fillStyle = '#fff';
-  ctx.fillText(playerChar.name, W * 0.3, H * 0.26);
-  ctx.fillText(rivalName, W * 0.7, H * 0.26);
-  ctx.font = '11px "Courier New", monospace';
-  ctx.fillStyle = '#998';
-  ctx.fillText(playerChar.desc, W * 0.3, H * 0.3);
-  ctx.fillText(isBoss && !charUnlocked(run.boss) ? 'véncelo y se unirá a tu baraja' : rivalChar.desc, W * 0.7, H * 0.3);
-  ctx.fillStyle = '#e8c050';
-  ctx.font = 'bold 16px "Courier New", monospace';
-  ctx.fillText('VS', W / 2, H * 0.24);
+  ctx.fillText(playerChar.name, W / 2, H * 0.21);
+  ctx.textAlign = 'left';
 
-  drawCenterText('VIRTUDES DEL DESTINO — elige un don', 20, H * 0.4, '#e8c050');
+  drawCenterText('VIRTUDES DEL DESTINO — un don para todo el torneo', 20, H * 0.32, '#e8c050');
   for (let i = 0; i < 3; i++) {
     const v = virtudOpts[i];
     const bx = W / 2 + (i - 1) * 260;
@@ -205,56 +346,29 @@ function drawDestinoScene(t) {
   drawCenterText(destino.desc, 16, H * 0.81, '#c0b8a8', 'transparent');
 }
 
+// apuestas al azar: la suerte decide y se muestra en pantalla
 function drawApuesta(t) {
   drawBackground();
   ctx.fillStyle = 'rgba(0,0,0,0.7)';
   ctx.fillRect(0, 0, W, H);
-  if (betReveal > 0) {
-    drawCenterText('LAS APUESTAS SE REVELAN', 24, H * 0.2, '#e8c050');
-    for (const [idx, px] of [[0, W * 0.3], [1, W * 0.7]]) {
-      const b = APUESTAS[betSel[idx]];
-      ctx.textAlign = 'center';
-      ctx.font = 'bold 64px serif';
-      ctx.fillStyle = idx === 0 ? '#c03434' : '#4a80d8';
-      ctx.fillText(b.kanji, px, H * 0.5);
-      ctx.font = 'bold 18px "Courier New", monospace';
-      ctx.fillStyle = '#fff';
-      ctx.fillText(b.name, px, H * 0.6);
-      ctx.font = '13px "Courier New", monospace';
-      ctx.fillStyle = '#998';
-      ctx.fillText(idx === 0 ? p1.name : p2.name, px, H * 0.38);
-    }
-    ctx.textAlign = 'left';
-    return;
-  }
-  const who = !betDone[0] ? 0 : 1;
-  drawCenterText('APUESTA SECRETA', 28, H * 0.18, '#e8c050');
-  drawCenterText(
-    (who === 0 ? p1.name : p2.name) + ' — elige tu actitud para esta ronda',
-    15, H * 0.25, who === 0 ? '#ff8a7a' : '#8ab4ff', 'transparent');
-  for (let i = 0; i < 3; i++) {
-    const b = APUESTAS[i];
-    const bx = W / 2 + (i - 1) * 250;
-    const sel = betSel[who] === i;
-    ctx.fillStyle = sel ? 'rgba(232,192,80,0.16)' : 'rgba(255,255,255,0.05)';
-    ctx.fillRect(bx - 105, H * 0.36, 210, 170);
-    ctx.strokeStyle = sel ? '#e8c050' : 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = sel ? 3 : 1;
-    ctx.strokeRect(bx - 105, H * 0.36, 210, 170);
+  drawCenterText('LA SUERTE REPARTE LAS APUESTAS', 24, H * 0.18, '#e8c050');
+  for (const [idx, px] of [[0, W * 0.3], [1, W * 0.7]]) {
+    const b = APUESTAS[betSel[idx]];
     ctx.textAlign = 'center';
-    ctx.font = 'bold 46px serif';
-    ctx.fillStyle = sel ? '#e8c050' : '#998';
-    ctx.fillText(b.kanji, bx, H * 0.49);
-    ctx.font = 'bold 15px "Courier New", monospace';
-    ctx.fillStyle = sel ? '#fff' : '#bbb';
-    ctx.fillText(b.name, bx, H * 0.56);
-    ctx.font = '11px "Courier New", monospace';
+    ctx.font = '13px "Courier New", monospace';
+    ctx.fillStyle = '#998';
+    ctx.fillText(idx === 0 ? p1.name : p2.name, px, H * 0.34);
+    ctx.font = 'bold 64px serif';
+    ctx.fillStyle = idx === 0 ? '#c03434' : '#4a80d8';
+    ctx.fillText(b.kanji, px, H * 0.5);
+    ctx.font = 'bold 18px "Courier New", monospace';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(b.name, px, H * 0.6);
+    ctx.font = '12px "Courier New", monospace';
     ctx.fillStyle = '#c0b8a8';
-    ctx.fillText(b.desc, bx, H * 0.61);
+    ctx.fillText(b.desc, px, H * 0.66);
   }
   ctx.textAlign = 'left';
-  if (!vsCPU) drawCenterText('elección secreta: ¡que no mire el rival!', 13, H * 0.9, '#776', 'transparent');
-  drawCenterText(TOUCH ? 'toca dos veces para sellar tu apuesta' : (who === 0 ? 'A/D elegir · F sellar' : '←/→ elegir · K sellar'), 13, H * 0.95, '#776', 'transparent');
 }
 
 function drawMatchEnd(t) {

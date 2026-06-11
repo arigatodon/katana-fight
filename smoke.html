@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><title>smoke</title></head>
+<body>
+<div id="wrap"><canvas id="game" width="960" height="540"></canvas></div>
+<script>
+  window.__errors = [];
+  window.onerror = (msg, src, line) => { window.__errors.push(msg + ' @ ' + (src||'').split('/').pop() + ':' + line); };
+</script>
+<script src="js/core.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/data.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/input.js"></script>
+<script src="js/net.js"></script>
+<script src="js/player.js"></script>
+<script src="js/combat.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/flow.js"></script>
+<script src="js/update.js"></script>
+<script src="js/render.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+<script>
+  // driver determinista: avanza la simulación a mano, sin rAF
+  const seen = ['title'];
+  function tick(n) {
+    for (let i = 0; i < n; i++) {
+      handleMenus();
+      update(1 / 60);
+      keyPressQueue.length = 0;
+      tapQueue.length = 0;
+      if (seen[seen.length - 1] !== scene) seen.push(scene);
+    }
+  }
+  function press(code) { keyPressQueue.push(code); }
+
+  try {
+    press('Enter'); tick(2);    // título → torneo → choose
+    press('KeyD');  tick(2);    // navegar personajes
+    press('KeyS');  tick(2);
+    press('Enter'); tick(2);    // confirmar guerrero → virtud
+    press('KeyD');  tick(2);
+    press('Enter'); tick(2);    // confirmar don → vs
+    press('Enter'); tick(2);    // saltar presentación → destino
+    tick(60 * 12);              // destino + apuesta + inicio de ronda + pelea
+    draw(1);                    // una pasada de dibujo de la pelea
+    scene = 'choose'; draw(2);  // y de cada pantalla nueva
+    scene = 'vs'; draw(3);
+    scene = 'apuesta'; draw(4);
+
+    // modo 2 jugadores: J1 elige, J2 elige, presentación y pelea
+    start2P(); tick(1);
+    press('KeyD');  tick(2);
+    press('Enter'); tick(2);    // J1 elige
+    press('KeyS');  tick(2);
+    press('KeyK');  tick(2);    // J2 elige con K
+    tick(60 * 12);              // vs (auto) + destino + apuesta + pelea
+    window.__2p = { escena: scene, j1: playerChar.name, j2: rivalChar.name,
+                    v1: p1 && p1.virtud && p1.virtud.name, v2: p2 && p2.virtud && p2.virtud.name };
+
+    // determinismo: misma semilla + mismos inputs ⇒ misma pelea
+    function simHash(seed) {
+      seedRng(seed);
+      const orig = readInput;
+      let tk = 0;
+      readInput = (p, isP1) => {
+        const fase = (tk >> 5) % 4;
+        return isP1
+          ? { left: fase === 1, right: fase === 0, jump: tk % 97 === 11,
+              attack: tk % 53 === 17, feint: tk % 71 === 31, guard: false }
+          : { left: fase === 0, right: fase === 2, jump: tk % 89 === 7,
+              attack: tk % 47 === 13, feint: tk % 61 === 29, guard: false };
+      };
+      vsCPU = false; run = null; runVirtud = null; modoFinal = false;
+      playerChar = CHARS[0]; rivalChar = CHARS[2];
+      startMatch();
+      let h = 0;
+      for (tk = 0; tk < 60 * 25; tk++) {
+        update(1 / 60);
+        if (tk % 7 === 0) {
+          const s = [p1.x, p1.y, p1.vida, p1.postura, p1.state,
+                     p2.x, p2.y, p2.vida, p2.postura, p2.state,
+                     roundNum, scene, destino.id, stage.id].join(',');
+          for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0;
+        }
+      }
+      readInput = orig;
+      return h;
+    }
+    const hA = simHash(12345), hB = simHash(12345), hC = simHash(99999);
+    window.__det = { iguales: hA === hB, distintas: hA !== hC, hash: hA };
+  } catch (e) { window.__errors.push('driver: ' + e.message); }
+
+  const pre = document.createElement('pre');
+  pre.id = 'result';
+  pre.textContent = JSON.stringify({
+    escenas: seen,
+    escenaFinal: scene,
+    guerrero: playerChar && playerChar.name,
+    rival: rivalChar && rivalChar.name,
+    don: runVirtud && runVirtud.name,
+    apuestas: betSel,
+    p1bet: p1 && p1.bet, p2bet: p2 && p2.bet,
+    p1virtud: p1 && p1.virtud && p1.virtud.name,
+    dosJugadores: window.__2p,
+    determinismo: window.__det,
+    errores: window.__errors,
+  }, null, 1);
+  document.body.appendChild(pre);
+</script>
+</body>
+</html>

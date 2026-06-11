@@ -58,6 +58,7 @@ cvs.addEventListener('mousedown', e => {
 
 // lectura por jugador durante el combate
 function readInput(p, isP1, foe, dt) {
+  if (netPlaying()) return unpackInput(net.frame[isP1 ? 0 : 1]);
   if (p.isCPU) return updateAI(p, foe, dt);
   if (isP1) {
     return {

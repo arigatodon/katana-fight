@@ -3,10 +3,11 @@
 // ============================================================
 //  FLUJO — torneo arcade, rondas, apuestas, puntaje y ranking
 //
-//  Torneo (1 jugador): 5 duelos contra rivales al azar y un 6º
-//  contra un personaje secreto. Tu guerrero también es al azar
-//  y cambia entre pelea y pelea. Si vences al secreto, queda
-//  desbloqueado y entra a tu baraja.
+//  Torneo (1 jugador): eliges tu guerrero y un don al inicio,
+//  y peleas 5 duelos contra rivales al azar y un 6º contra un
+//  personaje secreto. Si vences al secreto, queda desbloqueado
+//  y entra a tu baraja. Destino y apuestas van al azar y se
+//  muestran en pantalla: el foco está en la pelea.
 // ============================================================
 
 function pickBoss() {
@@ -20,17 +21,19 @@ function startRun(final) {
   run = { fight: 0, score: 0, boss: pickBoss() };
   runOver = null;
   runUnlocked = null;
-  nextFight();
+  runVirtud = null;
+  chooseSel = 0;
+  choosingP = 0;
+  scene = 'choose';
 }
 
 function nextFight() {
   run.fight++;
   const isBoss = run.fight === RUN_FIGHTS;
-  // tu guerrero es al azar y cambia entre peleas
-  playerChar = randomFrom(allChars().filter(charUnlocked));
+  // tu guerrero se mantiene todo el torneo; el rival cambia al azar
   rivalChar = isBoss ? run.boss : randomFrom(CHARS.filter(c => c !== playerChar));
-  pickVirtudes();
-  scene = 'virtud';
+  scene = 'vs';
+  vsTimer = 2.6;
 }
 
 function start2P() {
@@ -38,28 +41,67 @@ function start2P() {
   modoFinal = false;
   run = null;
   runOver = null;
-  playerChar = randomFrom(allChars().filter(charUnlocked));
-  rivalChar = randomFrom(allChars().filter(c => charUnlocked(c) && c !== playerChar));
-  pickVirtudes();
-  scene = 'virtud';
+  runVirtud = null;
+  chooseSel = 0;
+  choosingP = 0;
+  scene = 'choose';
+}
+
+// ---------------- Selección de personaje ----------------
+function choosePool() { return allChars().filter(charUnlocked); }
+
+const CHOOSE_COLS = 5;
+function chooseCell(i) {
+  const col = i % CHOOSE_COLS, row = Math.floor(i / CHOOSE_COLS);
+  return { x: W / 2 + (col - 2) * 180, y: 168 + row * 118 };
+}
+
+function confirmChoose() {
+  const c = choosePool()[chooseSel];
+  sfxConfirm();
+  if (netActive()) { netChoose(c); return; }
+  if (vsCPU) {
+    playerChar = c;
+    pickVirtudes();
+    scene = 'virtud';
+    return;
+  }
+  if (choosingP === 0) {        // 2 jugadores: elige J1 y luego J2
+    playerChar = c;
+    choosingP = 1;
+    chooseSel = 0;
+  } else {
+    rivalChar = c;
+    scene = 'vs';
+    vsTimer = 2.4;
+  }
 }
 
 function pickVirtudes() {
   const pool = VIRTUDES.slice();
   virtudOpts = [];
   for (let i = 0; i < 3; i++) {
-    virtudOpts.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    virtudOpts.push(pool.splice(Math.floor(rnd() * pool.length), 1)[0]);
   }
   virtudSel = 0;
 }
 
 function startMatch() {
+  // relojes de simulación a cero: el viento y el calor de las grietas
+  // dependen de ellos, y online ambos clientes deben partir iguales
+  gTime = 0; windPhase = 0; timeScale = 1; slowmoTimer = 0;
+  shake = 0; flashTimer = 0; darkPulse = 0;
   stage = randomFrom(STAGES);
-  const v1 = virtudOpts[virtudSel] || null;
+  // torneo: el don elegido al inicio · 2 jugadores: dones al azar
+  const v1 = vsCPU ? runVirtud : randomFrom(VIRTUDES);
   const cpuBoost = run ? (run.fight - 1) * 1.5 : 0;   // el torneo se endurece
   p1 = makePlayer(W * 0.25, 1, playerChar, false, 'JUGADOR 1', v1, 0);
   p2 = makePlayer(W * 0.75, -1, rivalChar, vsCPU, vsCPU ? 'CPU' : 'JUGADOR 2',
                   randomFrom(VIRTUDES), cpuBoost);
+  if (netActive()) {           // online: el lado rojo es el jugador 0
+    p1.name = net.side === 0 ? 'TÚ' : 'RIVAL';
+    p2.name = net.side === 1 ? 'TÚ' : 'RIVAL';
+  }
   roundNum = 0;
   matchWinner = null;
   ghostRec = null; ghostPlay = null;
@@ -68,15 +110,14 @@ function startMatch() {
 
 function startRoundFlow() {
   roundNum++;
-  destino = roundNum === 1 && Math.random() < 0.35
+  destino = roundNum === 1 && rnd() < 0.35
     ? DESTINOS[0]
     : randomFrom(DESTINOS);
   scene = 'destino';
   roundMsgTimer = 2.2;
-  betSel = [0, 0];
-  betDone = [false, vsCPU];
-  if (vsCPU) betSel[1] = Math.floor(Math.random() * 3);
-  betReveal = 0;
+  // la suerte reparte las apuestas: al azar pero visibles en pantalla
+  betSel = [Math.floor(rnd() * 3), Math.floor(rnd() * 3)];
+  betReveal = 1.8;
 }
 
 function resetRound() {
@@ -94,7 +135,7 @@ function resetRound() {
     p.afterimages = [];
   }
   particles = []; slashTrails = []; floaters = []; projectiles = [];
-  cracks = []; bellTimer = 3 + Math.random() * 4;
+  cracks = []; bellTimer = 3 + rnd() * 4;
   if (stage.id === 'volcan') spawnCracks();
   timeScale = 1; slowmoTimer = 0; shake = 0; flashTimer = 0;
   roundStartTimer = 2.2;
@@ -108,9 +149,9 @@ function resetRound() {
 
 function spawnCracks() {
   cracks = [];
-  const n = 2 + Math.floor(Math.random() * 2);
+  const n = 2 + Math.floor(rnd() * 2);
   for (let i = 0; i < n; i++) {
-    cracks.push({ x: W * (0.2 + Math.random() * 0.6), w: 50 + Math.random() * 40, heat: 0, phase: Math.random() * 10 });
+    cracks.push({ x: W * (0.2 + rnd() * 0.6), w: 50 + rnd() * 40, heat: 0, phase: rnd() * 10 });
   }
 }
 
@@ -151,38 +192,10 @@ function snapshotGhostFor(winner) {
   ghostRec.scale = winner.scale;
 }
 
-// ---------------- Apuestas (elección secreta) ----------------
+// ---------------- Apuestas (al azar, solo se revelan) ----------------
 function updateApuesta(dt) {
-  if (betReveal > 0) {
-    betReveal -= dt;
-    if (betReveal <= 0) resetRound();
-    return;
-  }
-  for (const code of keyPressQueue) {
-    if (!betDone[0]) {
-      if (code === 'KeyA' || code === 'ArrowLeft') { betSel[0] = (betSel[0] + 2) % 3; sfxSelect(); }
-      if (code === 'KeyD' || code === 'ArrowRight') { betSel[0] = (betSel[0] + 1) % 3; sfxSelect(); }
-      if (code === 'KeyF' || code === 'Enter' || code === 'Space') { betDone[0] = true; sfxConfirm(); }
-    } else if (!vsCPU && !betDone[1]) {
-      if (code === 'ArrowLeft') { betSel[1] = (betSel[1] + 2) % 3; sfxSelect(); }
-      if (code === 'ArrowRight') { betSel[1] = (betSel[1] + 1) % 3; sfxSelect(); }
-      if (code === 'KeyK' || code === 'Enter') { betDone[1] = true; sfxConfirm(); }
-    }
-  }
-  keyPressQueue = [];
-  for (const tp of tapQueue) {
-    const idx = !betDone[0] ? 0 : (!vsCPU && !betDone[1] ? 1 : -1);
-    if (idx < 0) break;
-    for (let i = 0; i < 3; i++) {
-      const bx = W / 2 + (i - 1) * 250;
-      if (Math.abs(tp.x - bx) < 115 && Math.abs(tp.y - H * 0.52) < 90) {
-        if (betSel[idx] === i) { betDone[idx] = true; sfxConfirm(); }
-        else { betSel[idx] = i; sfxSelect(); }
-      }
-    }
-  }
-  tapQueue = [];
-  if (betDone[0] && betDone[1]) betReveal = 1.4;
+  betReveal -= dt;
+  if (betReveal <= 0) resetRound();
 }
 
 // ---------------- Puntaje y reputación ----------------

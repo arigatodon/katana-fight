@@ -222,6 +222,11 @@ function update(dt) {
     if (f.life <= 0) floaters.splice(i, 1);
   }
 
+  if (scene === 'vs') {
+    vsTimer -= dt;
+    if (vsTimer <= 0) startMatch();
+    return;
+  }
   if (scene === 'destino') {
     roundMsgTimer -= dt;
     if (roundMsgTimer <= 0) scene = 'apuesta';
@@ -260,21 +265,21 @@ function updateStageHazards(dt) {
   if (stage.id === 'templo') {
     bellTimer -= dt;
     if (bellTimer <= 0) {
-      bellTimer = 4 + Math.random() * 5;
+      bellTimer = 4 + rnd() * 5;
       sfxBell();
       flashTimer = Math.max(flashTimer, 0.08);
       darkPulse = 0.5;
     }
   }
   // mercado: los espectadores lanzan objetos
-  if (stage.id === 'mercado' && Math.random() < dt * 0.35) {
-    const fromLeft = Math.random() < 0.5;
+  if (stage.id === 'mercado' && rnd() < dt * 0.35) {
+    const fromLeft = rnd() < 0.5;
     projectiles.push({
       x: fromLeft ? -10 : W + 10,
-      y: GROUND - 180 - Math.random() * 120,
-      vx: (fromLeft ? 1 : -1) * (180 + Math.random() * 120),
-      vy: -60 + Math.random() * 60,
-      rot: 0, kind: Math.floor(Math.random() * 3),
+      y: GROUND - 180 - rnd() * 120,
+      vx: (fromLeft ? 1 : -1) * (180 + rnd() * 120),
+      vy: -60 + rnd() * 60,
+      rot: 0, kind: Math.floor(rnd() * 3),
     });
   }
   for (let i = projectiles.length - 1; i >= 0; i--) {

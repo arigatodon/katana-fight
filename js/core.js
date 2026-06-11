@@ -33,9 +33,25 @@ function loadSave() {
 let save = loadSave();
 function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} }
 
+// ---------------- RNG con semilla (mulberry32) ----------------
+// Todo azar que AFECTE la pelea (destino, apuestas, virtudes,
+// rasgos, escenario, peligros) pasa por rnd(): con la misma
+// semilla, los dos clientes del modo online simulan lo mismo.
+// El azar puramente visual (partículas, shake…) sigue usando
+// Math.random y no toca esta corriente.
+let _rngState = (Math.random() * 0xffffffff) >>> 0;
+function seedRng(s) { _rngState = s >>> 0; }
+function rnd() {
+  _rngState = (_rngState + 0x6D2B79F5) >>> 0;
+  let t = _rngState;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
 // ---------------- Estado global ----------------
-// Escenas: title | virtud | destino | apuesta | fight | roundEnd |
-//          matchEnd | firma | ranking
+// Escenas: title | choose | virtud | vs | destino | apuesta |
+//          fight | roundEnd | matchEnd | firma | ranking
 let scene = 'title';
 let menuSel = 0;
 let vsCPU = true;
@@ -60,12 +76,16 @@ let runOver = null;             // null = sigue · 'champion' | 'defeat'
 let runUnlocked = null;         // personaje secreto recién desbloqueado
 let playerChar = null, rivalChar = null;
 
-// virtud
+// selección de personaje
+let chooseSel = 0;
+let choosingP = 0;              // 0 = jugador 1 · 1 = jugador 2 (solo 2P)
+let vsTimer = 0;                // presentación del duelo (escena 'vs')
+// virtud (un solo don, elegido al inicio del torneo)
 let virtudOpts = [];
 let virtudSel = 0;
-// apuesta
+let runVirtud = null;
+// apuesta (al azar, se revela en pantalla antes de cada ronda)
 let betSel = [0, 0];
-let betDone = [false, false];
 let betReveal = 0;
 // firma arcade
 let firmaChars = ['A', 'A', 'A'];

@@ -1,0 +1,13 @@
+{
+  "name": "katana-fight-server",
+  "version": "1.0.0",
+  "description": "Servidor de emparejamiento y relé para KATANA FIGHT",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
