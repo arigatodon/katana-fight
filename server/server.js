@@ -166,6 +166,29 @@ ${comentarios.length ? `<ul>\n${items}\n</ul>` : '<div class="vacio">aún nadie 
 </html>`;
 }
 
+// ---------------- Presencia en el título ----------------
+// Quien está en el menú de título "late" por HTTP (GET /estado) para
+// que otros sepan que hay con quién emparejarse, ANTES de entrar al
+// online. Mapa id→últimoVisto con caducidad corta; los que ya entraron
+// al duelo no laten (están en el WS: esperando o jugando) y se cuentan
+// aparte. Es solo informativo: no toca la simulación.
+const PRESENCE_TTL = 12000;          // ms sin latido => fuera de la lista
+const presence = new Map();          // id efímero → timestamp del último latido
+
+function estado(id) {
+  const limite = Date.now() - PRESENCE_TTL;
+  for (const [k, t] of presence) if (t < limite) presence.delete(k);
+  if (presence.size > 5000) presence.clear();        // antiabuso
+  if (id) presence.set(id, Date.now());
+  let enDuelo = 0;
+  for (const ws of wss.clients) if (ws.peer && ws.readyState === 1) enDuelo++;
+  return {
+    presentes: presence.size,                        // mirando el título (incluye al que pregunta)
+    esperando: (waiting && waiting.readyState === 1) ? 1 : 0,
+    jugando: Math.floor(enDuelo / 2),                // duelos en curso
+  };
+}
+
 const httpServer = http.createServer((req, res) => {
   if (req.url === '/up') { res.writeHead(200); res.end('ok'); return; }   // healthcheck
   if (req.method === 'OPTIONS') {     // preflight CORS (desarrollo desde file://)
@@ -183,6 +206,14 @@ const httpServer = http.createServer((req, res) => {
     // CORS abierto: permite probar el juego desde file:// o localhost
     res.writeHead(200, CORS_JSON);
     res.end(JSON.stringify(topRanking(10)));
+    return;
+  }
+  if (p === '/estado') {                 // presencia: ¿hay con quién emparejarse?
+    let id = '';
+    try { id = new URL(req.url, 'http://x').searchParams.get('id') || ''; } catch (e) {}
+    id = id.replace(/[^a-z0-9]/gi, '').slice(0, 24);
+    res.writeHead(200, CORS_JSON);
+    res.end(JSON.stringify(estado(id)));
     return;
   }
   if (p === '/comentarios') {

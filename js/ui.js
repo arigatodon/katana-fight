@@ -11,8 +11,22 @@ const TITLE_OPTS = [
   { id: 'vs2',    label: '2 JUGADORES · elige tu guerrero' },
   { id: 'online', label: 'DUELO EN LÍNEA · emparejamiento' },
   { id: 'ctl',    label: 'CONTROLES · cambia las teclas' },
+  { id: 'full',   label: 'PANTALLA COMPLETA · alternar' },
   { id: 'rank',   label: 'TABLA DE RÉCORDS' },
 ];
+
+// pantalla completa: pide fullscreen sobre el documento (el canvas queda
+// centrado con bordes negros, sin deformarse). Requiere un gesto del
+// usuario, por eso se dispara desde el menú. Con prefijo webkit para Safari.
+function toggleFullscreen() {
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+  if (!fsEl) {
+    const el = document.documentElement;
+    (el.requestFullscreen || el.webkitRequestFullscreen || function () {}).call(el);
+  } else {
+    (document.exitFullscreen || document.webkitExitFullscreen || function () {}).call(document);
+  }
+}
 
 // tabla de récords: una pestaña por modo de juego
 const RANK_TABS = [
@@ -39,6 +53,7 @@ function titleChoose(i) {
   if (id === 'vs2') { start2P(); return; }
   if (id === 'online') { enterNombre(); return; }
   if (id === 'ctl') { enterControles(); return; }
+  if (id === 'full') { toggleFullscreen(); return; }
   startRun(id === 'final');
 }
 
@@ -292,7 +307,7 @@ function handleMenus() {
         if (tp.x > W - 120) { window.open(LINK_DONA, '_blank'); continue; }
       }
       for (let i = 0; i < TITLE_OPTS.length; i++) {
-        if (Math.abs(tp.y - (H * 0.52 + i * 42)) < 20) {
+        if (Math.abs(tp.y - (H * 0.50 + i * 36)) < 16) {
           if (menuSel === i) titleChoose(i);
           else { menuSel = i; sfxSelect(); }
         }
@@ -380,6 +395,7 @@ function leaveNetMatch() {
 
 // ---------------- Pantallas ----------------
 function drawTitle(t) {
+  pollPresence(t);              // late al servidor: ¿hay con quién emparejarse?
   drawBackground();
   const demo1 = makePlayer(W * 0.22, 1, CHARS[0], false, '');
   const demo2 = makePlayer(W * 0.78, -1, CHARS[2], false, '');
@@ -398,11 +414,37 @@ function drawTitle(t) {
     const blink = sel && Math.sin(t * 6) > -0.2;
     drawCenterText(
       (sel ? '» ' : '  ') + TITLE_OPTS[i].label + (sel ? ' «' : '  '),
-      20, H * 0.52 + i * 42,
+      20, H * 0.50 + i * 36,
       blink ? '#e8c050' : (sel ? '#e8c050' : '#888'),
       sel ? '#b03030' : 'transparent'
     );
   }
+
+  // aviso de presencia: ¿hay con quién emparejarse?, a la derecha de la opción online
+  if (netPresence) {
+    const otros = Math.max(0, (netPresence.presentes || 0) - 1);   // sin contarme
+    let txt = '', col = '';
+    if (netPresence.esperando > 0) {                 // alguien en la cola: emparejas al instante
+      txt = '⚔ ¡un rival te espera!';
+      col = Math.sin(t * 6) > 0 ? '#e8c050' : '#b89030';
+    } else if (otros > 0) {                           // otros mirando el menú: entren y se emparejan
+      txt = '🟢 ' + otros + (otros === 1 ? ' en línea — ¡entra!' : ' en línea — ¡entren!');
+      col = '#6ad06a';
+    } else if (netPresence.jugando > 0) {             // hay actividad aunque ahora estén ocupados
+      txt = '⚔ ' + netPresence.jugando + (netPresence.jugando === 1 ? ' duelo en curso' : ' duelos en curso');
+      col = '#9a8a6a';
+    }
+    if (txt) {
+      const onlineI = TITLE_OPTS.findIndex(o => o.id === 'online');
+      ctx.save();
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 13px "Courier New", monospace';
+      ctx.fillStyle = col;
+      ctx.fillText(txt, W * 0.71, H * 0.50 + onlineI * 36);
+      ctx.restore();
+    }
+  }
+
   ctx.textAlign = 'center';
   ctx.font = '12px "Courier New", monospace';
   ctx.fillStyle = '#665';

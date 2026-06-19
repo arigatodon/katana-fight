@@ -34,6 +34,24 @@ function netHttpBase() {
   return netUrl().replace(/^ws/, 'http').replace(/\/ws$/, '');
 }
 
+// ---------------- Presencia (aviso de gente en línea) ----------------
+// Mientras el jugador está en el título late al servidor para que otros
+// que también miran el menú sepan que hay con quién emparejarse. Es solo
+// informativo (no toca la simulación), así que el id puede salir de
+// Math.random sin afectar la corriente determinista de rnd().
+let netPresence = null;        // { presentes, esperando, jugando } o null
+const NET_PRES_ID = 'p' + Math.floor(Math.random() * 1e12).toString(36);
+let _presNextT = 0;
+
+function pollPresence(t) {
+  if (typeof fetch === 'undefined' || t < _presNextT) return;
+  _presNextT = t + 5;          // un latido cada 5 s mientras estás en el título
+  fetch(netHttpBase() + '/estado?id=' + NET_PRES_ID)
+    .then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
+    .then(d => { netPresence = d; })
+    .catch(() => { netPresence = null; });
+}
+
 function fetchNetRanking() {
   netRank = { fase: 'cargando', rows: [] };
   fetch(netHttpBase() + '/ranking')
