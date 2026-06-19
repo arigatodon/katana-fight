@@ -95,6 +95,9 @@ function startMatch() {
   gTime = 0; windPhase = 0; timeScale = 1; slowmoTimer = 0;
   shake = 0; flashTimer = 0; darkPulse = 0;
   stage = randomFrom(STAGES);
+  // el destino (clima/condición) se fija para TODA la pelea: cada rival
+  // trae su propio cielo, no cambia entre rondas
+  pickDestino();
   // torneo: el don elegido al inicio · 2 jugadores: dones al azar
   const v1 = vsCPU ? runVirtud : randomFrom(VIRTUDES);
   const cpuBoost = run ? (run.fight - 1) * 1.5 : 0;   // el torneo se endurece
@@ -111,24 +114,31 @@ function startMatch() {
   startRoundFlow();
 }
 
-function startRoundFlow() {
-  roundNum++;
-  // clima real (solo local): online no se consume rnd() en la condición,
-  // así ambos clientes sacan el destino de la misma corriente del RNG
+// destino de la pelea: lo tiñe el clima real (solo local) o la suerte.
+// Se llama una vez por combate desde startMatch, no cada ronda.
+function pickDestino() {
   destinoPorClima = false;
-  if (!netActive() && clima && rnd() < 0.45) {
+  if (!netActive() && clima && rnd() < 0.55) {
     destino = DESTINOS.find(d => d.id === clima.destinoId) || DESTINOS[0];
     destinoPorClima = true;
   } else {
-    destino = roundNum === 1 && rnd() < 0.35
-      ? DESTINOS[0]
-      : randomFrom(DESTINOS);
+    destino = rnd() < 0.30 ? DESTINOS[0] : randomFrom(DESTINOS);
   }
-  scene = 'destino';
-  roundMsgTimer = 2.2;
-  // la suerte reparte las apuestas: al azar pero visibles en pantalla
+}
+
+function startRoundFlow() {
+  roundNum++;
+  // la suerte reparte las apuestas cada ronda: al azar pero visibles
   betSel = [Math.floor(rnd() * 3), Math.floor(rnd() * 3)];
   betReveal = 1.8;
+  // el destino ya está fijado para la pelea: solo lo presentamos en la
+  // primera ronda; las siguientes van directo a las apuestas
+  if (roundNum === 1) {
+    scene = 'destino';
+    roundMsgTimer = 2.2;
+  } else {
+    scene = 'apuesta';
+  }
 }
 
 function resetRound() {
