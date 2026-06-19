@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>KATANA FIGHT — demo de capas de escenario</title>
+<style>
+  body { margin: 0; background: #0a0a12; color: #e8e0d0; font-family: 'Courier New', monospace;
+         display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px; }
+  canvas { image-rendering: auto; box-shadow: 0 0 40px rgba(180,40,40,.25); cursor: pointer; max-width: 100vw; }
+  .hint { color: #998; font-size: 13px; text-align: center; }
+  .hint b { color: #e8c050; }
+</style>
+</head>
+<body>
+<canvas id="game" width="960" height="540"></canvas>
+<div class="hint">click izquierda/derecha = escenario anterior/siguiente · auto-cambia cada 7 s ·
+  capas: <b>fondo → cielo → luchadores → frente</b></div>
+
+<!-- mínimo para que escena.js funcione fuera del juego -->
+<script>
+  const cvs = document.getElementById('game');
+  const ctx = cvs.getContext('2d');
+  const W = cvs.width, H = cvs.height, GROUND = H - 80;
+  let gTime = 0;
+  // el juego usa 'dojo' (cinematográfico); aquí muestro el nuevo 'dojo_2'
+  const STAGE_IDS = ['barco', 'puente', 'bambu', 'volcan', 'playa', 'nieve', 'templo', 'mercado', 'tejado', 'dojo'];
+  const BG_FILE = { dojo: 'dojo_2' };          // qué archivo de fondo usar por etapa
+  let stageIdx = 0;
+  let stage = { id: STAGE_IDS[0] };
+</script>
+<script src="js/escena.js"></script>
+<script>
+  // precarga de fondos
+  const bgImgs = {};
+  for (const id of STAGE_IDS) {
+    const im = new Image();
+    im.src = 'assets/bg/' + (BG_FILE[id] || id) + '.png';
+    bgImgs[id] = im;
+  }
+
+  function dibujarLuchador(cx, mira) {
+    // silueta simple de relleno (en el juego van los samuráis reales)
+    const top = GROUND - 150;
+    ctx.save();
+    ctx.fillStyle = 'rgba(15,18,30,0.92)';
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.translate(cx, 0);
+    ctx.scale(mira, 1);
+    ctx.beginPath();
+    ctx.arc(0, top, 16, 0, Math.PI * 2); ctx.fill();              // cabeza
+    ctx.fillRect(-16, top + 14, 32, 80);                           // torso
+    ctx.fillRect(-15, top + 92, 13, 56); ctx.fillRect(2, top + 92, 13, 56); // piernas
+    ctx.fillRect(8, top + 26, 70, 8);                             // katana
+    ctx.restore();
+  }
+
+  function nombre() {
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 22px "Courier New", monospace';
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(W / 2 - 150, 14, 300, 34);
+    ctx.fillStyle = '#e8c050';
+    ctx.fillText(stage.id.toUpperCase() + '  (' + (stageIdx + 1) + '/' + STAGE_IDS.length + ')', W / 2, 38);
+    ctx.restore();
+  }
+
+  let last = 0, acc = 0;
+  function loop(ts) {
+    const t = ts / 1000;
+    const dt = Math.min(0.05, t - last || 0); last = t;
+    gTime = t;
+    acc += dt;
+    if (acc > 7) { acc = 0; setStage((stageIdx + 1) % STAGE_IDS.length); }
+
+    ctx.clearRect(0, 0, W, H);
+    const bg = bgImgs[stage.id];
+    if (bg && bg.complete && bg.naturalWidth) ctx.drawImage(bg, 0, 0, W, H);
+    else { ctx.fillStyle = '#16202c'; ctx.fillRect(0, 0, W, H); }
+
+    drawCapas('cielo');                       // detrás de los luchadores
+    dibujarLuchador(W * 0.37, 1);
+    dibujarLuchador(W * 0.63, -1);
+    drawCapas('frente');                      // delante de los luchadores
+    nombre();
+    requestAnimationFrame(loop);
+  }
+  function setStage(i) { stageIdx = (i + STAGE_IDS.length) % STAGE_IDS.length; stage = { id: STAGE_IDS[stageIdx] }; acc = 0; }
+  cvs.addEventListener('click', e => {
+    const r = cvs.getBoundingClientRect();
+    setStage(stageIdx + (e.clientX - r.left < r.width / 2 ? -1 : 1));
+  });
+  requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -1,3 +1,5 @@
 .kamal/secrets.local
 .kamal/registry-password
 server/node_modules/
+tools/ai_raw/
+tools/__pycache__/
