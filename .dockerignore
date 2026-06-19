@@ -6,3 +6,7 @@ og_image.py
 server/data
 .kamal
 Dockerfile
+# editores: solo desarrollo local, nunca a producción
+rig_editor.html
+escena_editor.html
+tools

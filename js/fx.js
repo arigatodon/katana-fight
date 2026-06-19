@@ -34,6 +34,42 @@ function spawnSparks(x, y) {
   }
 }
 
+// choque de aceros: chispas más fuertes y un destello en el punto de contacto
+function spawnClash(x, y) {
+  for (let i = 0; i < 34; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = 220 + Math.random() * 560;
+    particles.push({
+      x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60,
+      life: 0.12 + Math.random() * 0.3, maxLife: 0.42,
+      color: ['#ffffff', '#fff4c0', '#ffe080', '#ffb030'][Math.floor(Math.random() * 4)],
+      size: 1.5 + Math.random() * 2.5, gravity: false,
+    });
+  }
+  // núcleo brillante del impacto
+  particles.push({ x, y, vx: 0, vy: 0, life: 0.12, maxLife: 0.12, color: '#ffffff', size: 16, gravity: false });
+  slashTrails.push({ x1: x - 26, y1: y - 26, x2: x + 26, y2: y + 26, life: 0.16, maxLife: 0.16 });
+  slashTrails.push({ x1: x - 26, y1: y + 26, x2: x + 26, y2: y - 26, life: 0.16, maxLife: 0.16 });
+}
+
+// sangre al cortar: rocío dirigido en el sentido del corte (dir = facing) que
+// luego cae por gravedad
+function spawnBlood(x, y, dir, amount) {
+  const n = amount || 20;
+  for (let i = 0; i < n; i++) {
+    const a = (Math.random() - 0.5) * 1.7;            // abanico
+    const s = 120 + Math.random() * 340;
+    particles.push({
+      x, y,
+      vx: dir * Math.cos(a) * s + (Math.random() - 0.5) * 70,
+      vy: Math.sin(a) * s - 130 - Math.random() * 110,
+      life: 0.4 + Math.random() * 0.55, maxLife: 0.95,
+      color: ['#c01818', '#8e0e0e', '#e03030', '#a01414'][Math.floor(Math.random() * 4)],
+      size: 2 + Math.random() * 3.5, gravity: true,
+    });
+  }
+}
+
 function floatText(x, y, txt, color, size) {
   floaters.push({ x, y, txt, color, size: size || 16, life: 0.9, maxLife: 0.9 });
 }

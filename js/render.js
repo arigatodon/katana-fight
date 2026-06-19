@@ -53,8 +53,8 @@ loadParts(allChars().map(c => c.id));
 // proporciones del muñeco (fracciones del alto total) — ajustables
 const RIG = {
   hipFrac: 0.46,        // altura de la cadera (cintura)
-  shoulderFrac: 0.72,   // altura del hombro
-  shoulderXFrac: 0.04,  // hombro algo adelantado
+  shoulderFrac: 0.80,   // altura del hombro (alto, a la altura del cuello)
+  shoulderXFrac: -0.05, // hombro algo atrasado (encaja con el cuello, no adelante)
   torsoHFrac: 0.66,     // alto de la pieza de torso
   armsWFrac: 0.92,      // ancho de la pieza de brazos (largo katana incluido)
   lowerHFrac: 0.56,     // alto de la parte baja completa (hakama, cadera→pies)
@@ -63,16 +63,66 @@ const RIG = {
   legSwing: 0.26,       // zancada de las piernas sueltas al caminar (rad)
   lowerSway: 0.06,      // mecida de la parte baja completa al caminar (rad)
   walkBob: 2.5,         // sube/baja al caminar (px)
+  seamOverlap: 0.05,    // la parte baja sube bajo el torso para tapar el hueco
   // anclajes (pivote) dentro de cada imagen, en fracción de su bbox
   torsoAnchor: [0.5, 1.0],   // cintura: abajo-centro
   lowerAnchor: [0.5, 0.04],  // cadera: arriba-centro
   legAnchor:   [0.5, 0.06],  // cadera: arriba-centro
-  armsAnchor:  [0.10, 0.34], // hombro: extremo izquierdo
+  armsAnchor:  [0.06, 0.28], // hombro: extremo izquierdo-superior (encaja en el cuello)
 };
 
 // personajes cuya pieza de parte baja ya trae las DOS piernas (hakama
 // completo): se dibuja una sola vez. El resto trae UNA pierna → se duplica.
 const LEG_FULL = new Set(['maestro', 'gigante', 'sapo', 'abuela']);
+
+// ajustes por personaje guardados por el editor de rig (rig_editor.html →
+// rigs.json). Si existe un override para el id, manda sobre el RIG base.
+let rigData = null;
+if (typeof fetch !== 'undefined') {
+  fetch('rigs.json').then(r => r.ok ? r.json() : null).then(d => { rigData = d || {}; applyPartOverrides(); }).catch(() => {});
+}
+// un personaje puede usar piezas de OTRO (combinar): rigs.json puede traer
+// parts: { torso:"ronin/torso.png", pierna:"bandido/pierna.png", ... }
+function applyPartOverrides() {
+  if (!rigData) return;
+  for (const id in rigData) {
+    const ov = rigData[id] && rigData[id].parts;
+    if (!ov) continue;
+    const rec = partsImg[id] || (partsImg[id] = { ready: false, loaded: 0 });
+    for (const part of PART_NAMES) {
+      if (!ov[part]) continue;
+      const im = new Image();
+      im.onload = () => { rec.ready = true; };
+      im.src = 'assets/parts/' + ov[part];
+      rec[part] = im;
+    }
+  }
+}
+// rig efectivo de un personaje: RIG base + override de rigs.json
+function rigOf(id) {
+  const o = rigData && rigData[id];
+  return o ? Object.assign({}, RIG, o) : RIG;
+}
+// ¿la parte baja es una pieza (hakama completo) o una pierna a duplicar?
+function legIsFull(id) {
+  const o = rigData && rigData[id];
+  if (o && o.legMode) return o.legMode === 'full';
+  return LEG_FULL.has(id);
+}
+
+// retrato del personaje (la pieza de torso trae la cabeza): se recorta al
+// recuadro mostrando la cara arriba. Devuelve false si no hay arte.
+function drawFace(ch, cx, cy, w, h) {
+  const rec = ch && partsImg[ch.id];
+  if (!rec || !rec.ready || !rec.torso || !rec.torso.width) return false;
+  const img = rec.torso;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(cx - w / 2, cy - h / 2, w, h); ctx.clip();
+  const s = w / img.width;            // ajusta al ancho del recuadro
+  ctx.drawImage(img, cx - (img.width * s) / 2, cy - h / 2 - h * 0.04, img.width * s, img.height * s);
+  ctx.restore();
+  return true;
+}
 
 function drawPart(img, anchor, cx, cy, targetH, targetW, rot) {
   if (!img || !img.width) return;
@@ -90,8 +140,9 @@ function drawOrigami(p, ghostAlpha, rec) {
   const dead = p.state === PSTATE.DEAD;
   const bob = p.onGround && !dead ? Math.sin(p.bob) * 1.5 : 0;
   const sc = p.scale || 1;
-  const H = PUPPET_H * sc;
-  const hipY = -RIG.hipFrac * H, shY = -RIG.shoulderFrac * H;
+  const R = rigOf(p.char.id);              // rig base + ajuste por personaje
+  const H = PUPPET_H * sc * (R.heightMul || 1);
+  const hipY = -R.hipFrac * H, shY = -R.shoulderFrac * H;
 
   // estado del combate → inclinación del torso, arremetida y giro de la katana.
   // Las poses se autoran en espacio LOCAL (el personaje "mira a la derecha");
@@ -123,23 +174,29 @@ function drawOrigami(p, ghostAlpha, rec) {
 
   const walking = !dead && p.onGround && Math.abs(p.vx) > 30;
   const phase = Math.sin(p.bob * 1.6);
-  const wbob = walking ? Math.abs(phase) * RIG.walkBob : 0;
+  const wbob = walking ? Math.abs(phase) * R.walkBob : 0;
 
-  // 1) parte baja: hakama completo (1 pieza) para maestro/gigante; el resto
-  //    trae UNA pierna que se duplica (delante/atrás) con zancada al caminar
-  if (LEG_FULL.has(p.char.id)) {
-    const sway = walking ? phase * RIG.lowerSway : 0;
-    drawPart(rec.pierna, RIG.lowerAnchor, 0, hipY + wbob, RIG.lowerHFrac * H, null, sway);
+  // desplazamientos por pieza (el editor de rig los mueve arrastrando)
+  const tdx = (R.torsoDX || 0) * H, tdy = (R.torsoDY || 0) * H;
+  const adx = (R.armsDX || 0) * H, ady = (R.armsDY || 0) * H;
+  const ldx = (R.lowerDX || 0) * H, ldy = (R.lowerDY || 0) * H;
+
+  // 1) parte baja: hakama completo (1 pieza) o una pierna duplicada (delante/
+  //    atrás) con zancada. Sube `seam` bajo el torso para tapar el hueco.
+  const seam = R.seamOverlap * H;
+  if (legIsFull(p.char.id)) {
+    const sway = walking ? phase * R.lowerSway : 0;
+    drawPart(rec.pierna, R.lowerAnchor, ldx, hipY + wbob - seam + ldy, R.lowerHFrac * H + seam, null, sway);
   } else {
-    const sw = walking ? phase * RIG.legSwing : 0.05;
-    const legH = RIG.legHFrac * H, split = RIG.legSplitFrac * H;
-    drawPart(rec.pierna, RIG.legAnchor, -split, hipY, legH, null, -sw);   // trasera
-    drawPart(rec.pierna, RIG.legAnchor,  split, hipY, legH, null,  sw);   // delantera
+    const sw = walking ? phase * R.legSwing : 0.05;
+    const legH = R.legHFrac * H + seam, split = R.legSplitFrac * H;
+    drawPart(rec.pierna, R.legAnchor, -split + ldx, hipY - seam + ldy, legH, null, -sw);   // trasera
+    drawPart(rec.pierna, R.legAnchor,  split + ldx, hipY - seam + ldy, legH, null,  sw);   // delantera
   }
   // 2) torso + cabeza: pivota en la cintura, se inclina (rotación en local)
-  drawPart(rec.torso, RIG.torsoAnchor, 0, hipY + bob + wbob, RIG.torsoHFrac * H, null, lean);
+  drawPart(rec.torso, R.torsoAnchor, tdx, hipY + bob + wbob + tdy, R.torsoHFrac * H, null, lean);
   // 3) brazos + katana: pivotan en el hombro y giran con la pose (rotación en local)
-  drawPart(rec.brazos, RIG.armsAnchor, RIG.shoulderXFrac * H, shY + bob + wbob, null, RIG.armsWFrac * H, armRot);
+  drawPart(rec.brazos, R.armsAnchor, R.shoulderXFrac * H + adx, shY + bob + wbob + ady, null, R.armsWFrac * H, armRot);
 
   ctx.restore();
 }

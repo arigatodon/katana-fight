@@ -25,17 +25,29 @@ const PUENTE_DECK = [
   [0.70, 0.511], [0.74, 0.535], [0.78, 0.563], [0.82, 0.596], [0.86, 0.633],
   [0.90, 0.670],
 ];
-function groundY(x) {
-  if (typeof stage !== 'undefined' && stage && stage.id === 'puente') {
-    const fx = x / W, t = PUENTE_DECK, n = t.length;
-    if (fx <= t[0][0]) return t[0][1] * H;
-    if (fx >= t[n - 1][0]) return t[n - 1][1] * H;
-    for (let i = 0; i < n - 1; i++) {
-      if (fx <= t[i + 1][0]) {
-        const u = (fx - t[i][0]) / (t[i + 1][0] - t[i][0]);
-        return (t[i][1] + (t[i + 1][1] - t[i][1]) * u) * H;
-      }
+// definiciones de escenario editables (las carga escena.js desde escenas.json);
+// null hasta que lleguen — el juego funciona igual sin ellas.
+let escenasData = null;
+
+// interpola una curva [[xfrac, yfrac], …] (ordenada por x) y devuelve px en y
+function interpCurva(tab, x) {
+  const fx = x / W, n = tab.length;
+  if (fx <= tab[0][0]) return tab[0][1] * H;
+  if (fx >= tab[n - 1][0]) return tab[n - 1][1] * H;
+  for (let i = 0; i < n - 1; i++) {
+    if (fx <= tab[i + 1][0]) {
+      const u = (fx - tab[i][0]) / (tab[i + 1][0] - tab[i][0]);
+      return (tab[i][1] + (tab[i + 1][1] - tab[i][1]) * u) * H;
     }
+  }
+  return GROUND;
+}
+
+function groundY(x) {
+  if (typeof stage !== 'undefined' && stage) {
+    const def = escenasData && escenasData[stage.id];
+    if (def && def.suelo && def.suelo.length >= 2) return interpCurva(def.suelo, x);   // curva del editor
+    if (stage.id === 'puente') return interpCurva(PUENTE_DECK, x);                      // arco por defecto
   }
   return GROUND;
 }
@@ -66,6 +78,7 @@ function loadSave() {
       // migración: teclas remapeables (rellena las acciones que falten)
       s.keymap = s.keymap || {};
       for (const pl of ['p1', 'p2']) s.keymap[pl] = Object.assign({}, KEYMAP_DEFAULT[pl], s.keymap[pl]);
+      s.musica = s.musica !== false;   // música de combate (por defecto activada)
       return s;
     }
   } catch (e) {}
@@ -80,6 +93,7 @@ function loadSave() {
     lastFirma: 'AAA',
     onlineName: '',         // nombre para el duelo en línea
     keymap: defaultKeymap(),
+    musica: true,           // música de fondo en combate
   };
 }
 let save = loadSave();

@@ -69,3 +69,82 @@ function sfxKill() {
   tone('sawtooth', 220, 40, 0.65, 0.35);
   noiseHit(0.4, 'lowpass', 900, 0, 0.4);
 }
+
+// ============================================================
+//  MÚSICA — pista de fondo durante el combate (HTML5 Audio, aparte
+//  del SFX sintetizado). Es puramente audio: no toca la simulación
+//  ni el RNG con semilla, así que NO afecta al lockstep del online.
+// ============================================================
+const MUSIC_VOL = 0.4;
+const MUSIC_SRC = {
+  vacio: 'assets/music/vacio.mp3',   // la pista principal
+  grito: 'assets/music/grito.mp3',   // ~4 min: se entra en distinto punto por escenario
+};
+// pista + segundo de inicio por escenario. cartagena, bambú y balneario
+// usan "vacío"; el resto entra a "grito" en offsets repartidos a lo largo
+// de sus 4 min para que no suene siempre lo mismo.
+const STAGE_MUSIC = {
+  cartagena: ['vacio', 0],
+  bambu:     ['vacio', 0],
+  playa:     ['vacio', 0],
+  dojo:      ['grito', 0],
+  puente:    ['grito', 30],
+  tejado:    ['grito', 60],
+  templo:    ['grito', 90],
+  mercado:   ['grito', 120],
+  volcan:    ['grito', 150],
+  nieve:     ['grito', 180],
+  barco:     ['grito', 210],
+};
+
+let music = null;          // elemento Audio activo
+let musicSrc = null;       // src de la pista cargada
+let musicStage = null;     // escenario para el que se inició (null = parada)
+
+function musicEnabled() { return !save || save.musica !== false; }
+
+function startStageMusic(stageId) {
+  const cfg = STAGE_MUSIC[stageId] || ['grito', 0];
+  const src = MUSIC_SRC[cfg[0]];
+  if (musicSrc !== src) {
+    if (music) music.pause();
+    music = new Audio(src);
+    music.loop = true;
+    musicSrc = src;
+  }
+  music.volume = musicEnabled() ? MUSIC_VOL : 0;
+  try { music.currentTime = cfg[1]; } catch (e) {}
+  if (musicEnabled()) music.play().catch(() => {});
+  musicStage = stageId;
+}
+
+function stopMusic() {
+  if (music) music.pause();
+  musicStage = null;
+}
+
+// llamado cada frame desde el bucle: la música suena en combate y calla
+// en los menús. El primer gesto del usuario (al pasar por el menú) ya
+// desbloqueó la reproducción, así que play() no lo rechaza en la pelea.
+function syncMusic() {
+  const fighting = (scene === 'fight' || scene === 'roundEnd' || scene === 'matchEnd') && stage;
+  if (fighting) {
+    if (musicStage !== stage.id) startStageMusic(stage.id);
+    else if (music) {
+      music.volume = musicEnabled() ? MUSIC_VOL : 0;
+      if (musicEnabled() && music.paused) music.play().catch(() => {});
+    }
+  } else if (musicStage) {
+    stopMusic();
+  }
+}
+
+// alterna música on/off desde el menú de opciones
+function toggleMusic() {
+  save.musica = !musicEnabled();
+  persist();
+  if (!music) return;
+  music.volume = musicEnabled() ? MUSIC_VOL : 0;
+  if (musicEnabled() && musicStage) music.play().catch(() => {});
+  else if (!musicEnabled()) music.pause();
+}

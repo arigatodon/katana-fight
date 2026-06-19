@@ -34,8 +34,9 @@ for (const id of ESC_PROPS) {
   escImgs[id] = im;
 }
 function escImg(id) {
-  const im = escImgs[id];
-  return im && im.complete && im.naturalWidth ? im : null;
+  let im = escImgs[id];
+  if (!im) { im = new Image(); im.src = 'assets/props/' + id + '.png'; escImgs[id] = im; }   // carga lazy (props del editor)
+  return im.complete && im.naturalWidth ? im : null;
 }
 
 // dibuja un prop con alto fijo (mantiene proporción). pivot: 'centro'
@@ -182,11 +183,30 @@ const CAPAS = {
   ],
 };
 
+// ───────────── Definiciones editables (escenas.json) ─────────────
+// El editor (escena_editor.html) guarda escenas.json: por escenario, sus
+// capas/suelo/zonas. Si existe una def para el escenario, manda sobre las
+// CAPAS por defecto de este archivo. Si no hay JSON (file://, sin server),
+// se usan las CAPAS de aquí y el comportamiento de siempre.
+function capasDe(id) {
+  if (typeof escenasData !== 'undefined' && escenasData && escenasData[id] && escenasData[id].capas) {
+    return escenasData[id].capas;
+  }
+  return CAPAS[id] || [];
+}
+function cargarEscenas() {
+  if (typeof fetch === 'undefined') return;
+  fetch('escenas.json')
+    .then(r => (r.ok ? r.json() : {}))
+    .then(d => { escenasData = d || {}; })
+    .catch(() => {});
+}
+cargarEscenas();
+
 // ───────────── API: dibuja la capa pedida del escenario actual ─────────────
 // 'capa' = 'cielo' (detrás de los luchadores) | 'frente' (delante)
 function drawCapas(capa) {
   if (typeof stage === 'undefined' || !stage) return;
-  const list = CAPAS[stage.id];
-  if (!list) return;
+  const list = capasDe(stage.id);
   for (const e of list) if (e.capa === capa) animar(e);
 }

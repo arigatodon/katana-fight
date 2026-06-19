@@ -6,14 +6,46 @@
 // ============================================================
 
 const TITLE_OPTS = [
-  { id: 'torneo', label: 'TORNEO · 5 duelos y un rival secreto' },
-  { id: 'final',  label: 'TORNEO GOLPE FINAL · un corte decide' },
-  { id: 'vs2',    label: '2 JUGADORES · elige tu guerrero' },
-  { id: 'online', label: 'DUELO EN LÍNEA · emparejamiento' },
-  { id: 'ctl',    label: 'CONTROLES · cambia las teclas' },
-  { id: 'full',   label: 'PANTALLA COMPLETA · alternar' },
-  { id: 'rank',   label: 'TABLA DE RÉCORDS' },
+  { id: 'arcade', label: 'MODO ARCADE' },
+  { id: 'online', label: 'DUELO EN LÍNEA' },
+  { id: 'final',  label: 'GOLPE FINAL' },
+  { id: 'vs2',    label: '2 JUGADORES' },
+  { id: 'opts',   label: 'OPCIONES' },
+  { id: 'rank',   label: 'RÉCORDS' },
 ];
+
+// breve descripción de la opción resaltada (debajo del menú)
+const TITLE_DESC = {
+  arcade: '5 duelos y un rival secreto',
+  online: 'emparejamiento · tu récord se guarda',
+  final:  'un solo corte decide el duelo',
+  vs2:    'dos jugadores en la misma pantalla',
+  opts:   'controles y pantalla completa',
+  rank:   'mejores puntajes por modo',
+};
+
+// submenú de Opciones
+const OPTS_OPTS = [
+  { id: 'ctl',    label: 'CONTROLES · cambia las teclas' },
+  { id: 'musica', label: 'MÚSICA' },
+  { id: 'full',   label: 'PANTALLA COMPLETA · alternar' },
+  { id: 'volver', label: 'VOLVER' },
+];
+let optsSel = 0;
+function enterOpciones() { optsSel = 0; scene = 'opciones'; }
+// etiqueta mostrada (la de MÚSICA refleja el estado actual)
+function optLabel(opt) {
+  if (opt.id === 'musica') return 'MÚSICA · ' + (musicEnabled() ? 'activada' : 'silenciada');
+  return opt.label;
+}
+function opcionesChoose(i) {
+  const id = OPTS_OPTS[i].id;
+  sfxConfirm();
+  if (id === 'ctl') { enterControles(); return; }
+  if (id === 'musica') { toggleMusic(); return; }
+  if (id === 'full') { toggleFullscreen(); return; }
+  scene = 'title';
+}
 
 // pantalla completa: pide fullscreen sobre el documento (el canvas queda
 // centrado con bordes negros, sin deformarse). Requiere un gesto del
@@ -30,7 +62,7 @@ function toggleFullscreen() {
 
 // tabla de récords: una pestaña por modo de juego
 const RANK_TABS = [
-  { id: 'torneo', label: 'TORNEO' },
+  { id: 'torneo', label: 'ARCADE' },
   { id: 'final',  label: 'GOLPE FINAL' },
   { id: 'online', label: 'EN LÍNEA' },
 ];
@@ -52,9 +84,27 @@ function titleChoose(i) {
   if (id === 'rank') { setRankTab(rankTab); scene = 'ranking'; return; }
   if (id === 'vs2') { start2P(); return; }
   if (id === 'online') { enterNombre(); return; }
-  if (id === 'ctl') { enterControles(); return; }
-  if (id === 'full') { toggleFullscreen(); return; }
-  startRun(id === 'final');
+  if (id === 'opts') { enterOpciones(); return; }
+  startRun(id === 'final');   // arcade = false · golpe final = true
+}
+
+// pantalla de Opciones (controles · pantalla completa)
+function drawOpciones(t) {
+  drawBackground();
+  ctx.fillStyle = 'rgba(0,0,0,0.72)';
+  ctx.fillRect(0, 0, W, H);
+  drawCenterText('設定 — OPCIONES', 30, H * 0.24, '#e8c050');
+  for (let i = 0; i < OPTS_OPTS.length; i++) {
+    const sel = optsSel === i;
+    const blink = sel && Math.sin(t * 6) > -0.2;
+    drawCenterText(
+      (sel ? '» ' : '  ') + optLabel(OPTS_OPTS[i]) + (sel ? ' «' : '  '),
+      20, H * 0.42 + i * 52,
+      blink ? '#e8c050' : (sel ? '#e8c050' : '#888'),
+      sel ? '#b03030' : 'transparent'
+    );
+  }
+  drawCenterText(TOUCH ? 'toca para elegir' : 'W/S elegir · ENTER aceptar · ESC volver', 13, H * 0.92, '#776', 'transparent');
 }
 
 // ---------------- Controles remapeables ----------------
@@ -228,6 +278,12 @@ function handleMenus() {
       if (code === 'KeyW' || code === 'ArrowUp')   { menuSel = (menuSel + TITLE_OPTS.length - 1) % TITLE_OPTS.length; sfxSelect(); }
       if (code === 'KeyS' || code === 'ArrowDown') { menuSel = (menuSel + 1) % TITLE_OPTS.length; sfxSelect(); }
       if (code === 'Enter' || code === 'Space') titleChoose(menuSel);
+      checkCheat(code);   // escribir "SECRETO" desbloquea todos los personajes
+    } else if (scene === 'opciones') {
+      if (code === 'KeyW' || code === 'ArrowUp')   { optsSel = (optsSel + OPTS_OPTS.length - 1) % OPTS_OPTS.length; sfxSelect(); }
+      if (code === 'KeyS' || code === 'ArrowDown') { optsSel = (optsSel + 1) % OPTS_OPTS.length; sfxSelect(); }
+      if (code === 'Enter' || code === 'Space') opcionesChoose(optsSel);
+      if (code === 'Escape') { sfxConfirm(); scene = 'title'; }
     } else if (scene === 'controles') {
       if (ctlWaiting) {
         // la siguiente tecla pulsada queda asignada (ESC cancela, ENTER se reserva)
@@ -241,9 +297,9 @@ function handleMenus() {
         if (code === 'Enter' || code === 'Space') {
           if (ctlRow < CTL_ACTIONS.length) { ctlWaiting = true; sfxSelect(); }
           else if (ctlRow === CTL_ACTIONS.length) { save.keymap = defaultKeymap(); persist(); sfxConfirm(); }
-          else { sfxConfirm(); scene = 'title'; }
+          else { sfxConfirm(); scene = 'opciones'; }
         }
-        if (code === 'Escape') { sfxConfirm(); scene = 'title'; }
+        if (code === 'Escape') { sfxConfirm(); scene = 'opciones'; }
       }
     } else if (scene === 'choose') {
       const n = choosePool().length;
@@ -307,9 +363,16 @@ function handleMenus() {
         if (tp.x > W - 120) { window.open(LINK_DONA, '_blank'); continue; }
       }
       for (let i = 0; i < TITLE_OPTS.length; i++) {
-        if (Math.abs(tp.y - (H * 0.50 + i * 36)) < 16) {
+        if (Math.abs(tp.y - (H * 0.50 + i * 40)) < 18) {
           if (menuSel === i) titleChoose(i);
           else { menuSel = i; sfxSelect(); }
+        }
+      }
+    } else if (scene === 'opciones') {
+      for (let i = 0; i < OPTS_OPTS.length; i++) {
+        if (Math.abs(tp.y - (H * 0.42 + i * 52)) < 24) {
+          if (optsSel === i) opcionesChoose(i);
+          else { optsSel = i; sfxSelect(); }
         }
       }
     } else if (scene === 'controles') {
@@ -325,7 +388,7 @@ function handleMenus() {
         }
       }
       if (Math.abs(tp.y - (ctlRowY(CTL_ACTIONS.length) - 6)) < 20) { ctlRow = CTL_ACTIONS.length; save.keymap = defaultKeymap(); persist(); sfxConfirm(); hit = true; }
-      if (Math.abs(tp.y - (ctlRowY(CTL_ACTIONS.length + 1) - 6)) < 20 || (!hit && tp.y > H * 0.92)) { sfxConfirm(); scene = 'title'; }
+      if (Math.abs(tp.y - (ctlRowY(CTL_ACTIONS.length + 1) - 6)) < 20 || (!hit && tp.y > H * 0.92)) { sfxConfirm(); scene = 'opciones'; }
     } else if (scene === 'choose') {
       const pool = choosePool();
       for (let i = 0; i < pool.length; i++) {
@@ -394,11 +457,38 @@ function leaveNetMatch() {
 }
 
 // ---------------- Pantallas ----------------
+// código secreto: escribir "SECRETO" en el título desbloquea todos
+let cheatBuf = '', cheatMsgFrames = 0;
+function checkCheat(code) {
+  if (!/^Key[A-Z]$/.test(code)) return;
+  cheatBuf = (cheatBuf + code[3]).slice(-7);
+  if (cheatBuf === 'SECRETO') {
+    let nuevos = 0;
+    for (const c of SECRET_CHARS) if (!save.unlocked.includes(c.id)) { save.unlocked.push(c.id); nuevos++; }
+    persist();
+    sfxConfirm();
+    cheatMsgFrames = 180;   // ~3 s de aviso
+    cheatBuf = '';
+  }
+}
+
+// dos guerreros al azar mirándose en el título (con el arte nuevo); se
+// renuevan cada cierto tiempo
+let titleDemo = null, titleDemoUntil = 0;
+function pickTitleDemo() {
+  const pool = allChars();
+  const a = pool[Math.floor(Math.random() * pool.length)];
+  let b = pool[Math.floor(Math.random() * pool.length)], g = 0;
+  while (b === a && g++ < 12) b = pool[Math.floor(Math.random() * pool.length)];
+  titleDemo = [a, b];
+}
+
 function drawTitle(t) {
   pollPresence(t);              // late al servidor: ¿hay con quién emparejarse?
   drawBackground();
-  const demo1 = makePlayer(W * 0.22, 1, CHARS[0], false, '');
-  const demo2 = makePlayer(W * 0.78, -1, CHARS[2], false, '');
+  if (!titleDemo || t > titleDemoUntil) { pickTitleDemo(); titleDemoUntil = t + 6; }
+  const demo1 = makePlayer(W * 0.22, 1, titleDemo[0], false, '');
+  const demo2 = makePlayer(W * 0.78, -1, titleDemo[1], false, '');
   demo1.bob = t * 2; demo2.bob = t * 2 + 2;
   demo1.rasgo = null; demo2.rasgo = null;
   drawSamurai(demo1); drawSamurai(demo2);
@@ -414,10 +504,19 @@ function drawTitle(t) {
     const blink = sel && Math.sin(t * 6) > -0.2;
     drawCenterText(
       (sel ? '» ' : '  ') + TITLE_OPTS[i].label + (sel ? ' «' : '  '),
-      20, H * 0.50 + i * 36,
+      24, H * 0.50 + i * 40,
       blink ? '#e8c050' : (sel ? '#e8c050' : '#888'),
       sel ? '#b03030' : 'transparent'
     );
+  }
+  // descripción de la opción resaltada
+  drawCenterText(TITLE_DESC[TITLE_OPTS[menuSel].id] || '', 13, H * 0.50 + TITLE_OPTS.length * 40 + 6, '#9a8a6a', 'transparent');
+
+  // aviso del código secreto
+  if (cheatMsgFrames > 0) {
+    cheatMsgFrames--;
+    drawCenterText('¡PERSONAJES SECRETOS DESBLOQUEADOS!', 18, H * 0.45,
+      Math.sin(t * 10) > 0 ? '#e8c050' : '#fff', '#b03030');
   }
 
   // aviso de presencia: ¿hay con quién emparejarse?, a la derecha de la opción online
@@ -440,7 +539,7 @@ function drawTitle(t) {
       ctx.textAlign = 'left';
       ctx.font = 'bold 13px "Courier New", monospace';
       ctx.fillStyle = col;
-      ctx.fillText(txt, W * 0.71, H * 0.50 + onlineI * 36);
+      ctx.fillText(txt, W * 0.71, H * 0.50 + onlineI * 40);
       ctx.restore();
     }
   }
@@ -599,12 +698,16 @@ function drawChoose(t) {
     ctx.lineWidth = sel ? 3 : 1;
     ctx.strokeRect(c.x - 82, c.y - 50 - lift, 164, 100);
     ctx.textAlign = 'center';
-    ctx.font = 'bold 38px serif';
-    ctx.fillStyle = sel ? '#e8c050' : ch.secret ? '#9ad0e8' : '#998';
-    ctx.fillText(ch.kanji, c.x, c.y + 8 - lift);
+    // retrato (cara) del personaje; si no hay arte, el kanji
+    const hasFace = drawFace(ch, c.x, c.y - 6 - lift, 92, 80);
+    if (!hasFace) {
+      ctx.font = 'bold 38px serif';
+      ctx.fillStyle = sel ? '#e8c050' : ch.secret ? '#9ad0e8' : '#998';
+      ctx.fillText(ch.kanji, c.x, c.y + 8 - lift);
+    }
     ctx.font = 'bold 11px "Courier New", monospace';
     ctx.fillStyle = sel ? '#fff' : '#bbb';
-    ctx.fillText(ch.name, c.x, c.y + 34 - lift);
+    ctx.fillText(ch.name, c.x, c.y + 42 - lift);
   }
   ctx.textAlign = 'left';
   drawCenterText(pool[chooseSel].desc, 16, H * 0.86, '#c0b8a8', 'transparent');

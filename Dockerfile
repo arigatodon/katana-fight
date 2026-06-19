@@ -6,8 +6,15 @@ COPY server/package.json server/package-lock.json ./server/
 RUN cd server && npm ci --omit=dev
 
 COPY index.html og.png ./
+COPY assets ./assets
+# datos del juego que el cliente carga en runtime (los producen los
+# editores locales, pero el juego los consume en producción)
+COPY escenas.json rigs.json ./
 COPY js ./js
 COPY server/server.js ./server/
+# NOTA: los editores (rig_editor.html, escena_editor.html, tools/) y sus
+# APIs /api/* quedan FUERA de la imagen a propósito — son herramientas de
+# desarrollo local. El server las bloquea igual con DEV (404 en prod).
 
 # ranking en línea: el volumen katana_data (deploy.yml) se monta aquí;
 # el dir debe existir con dueño node para que el volumen herede permisos

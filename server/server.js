@@ -15,10 +15,14 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 8081;
 const ROOT = path.join(__dirname, '..');
+// herramientas de edición (listar/guardar/generar) solo en local, nunca en el
+// contenedor de producción
+const DEV = process.env.NODE_ENV !== 'production';
 
 // ---------------- Ranking en línea ----------------
 // Cada duelo terminado suma al ranking global, guardado en disco
@@ -220,6 +224,104 @@ const httpServer = http.createServer((req, res) => {
     if (req.method === 'POST') { postComment(req, res); return; }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(commentsPage());
+    return;
+  }
+  // ---- Editor de escenarios (herramienta de desarrollo, solo en local) ----
+  if (p.startsWith('/api/') && !DEV) { res.writeHead(404); res.end(); return; }
+  if (p === '/api/assets') {            // lista los PNG disponibles para el editor
+    const list = sub => {
+      try {
+        return fs.readdirSync(path.join(ROOT, 'assets', sub))
+          .filter(f => f.endsWith('.png')).map(f => f.slice(0, -4)).sort();
+      } catch (e) { return []; }
+    };
+    res.writeHead(200, CORS_JSON);
+    res.end(JSON.stringify({ bg: list('bg'), props: list('props') }));
+    return;
+  }
+  if (p === '/api/escena' && req.method === 'POST') {   // guarda escenas.json
+    let body = '';
+    req.on('data', ch => { body += ch; if (body.length > 4_000_000) req.destroy(); });
+    req.on('end', () => {
+      try { JSON.parse(body); } catch (e) { res.writeHead(400, CORS_JSON); res.end('{"ok":false}'); return; }
+      try {
+        fs.writeFileSync(path.join(ROOT, 'escenas.json'), body);
+        console.log(new Date().toISOString(), 'escenas.json guardado por el editor');
+        res.writeHead(200, CORS_JSON); res.end('{"ok":true}');
+      } catch (e) { res.writeHead(500, CORS_JSON); res.end('{"ok":false}'); }
+    });
+    return;
+  }
+  if (p === '/api/generar' && req.method === 'POST') {   // crea un fondo/elemento con Nano Banana
+    let body = '';
+    req.on('data', ch => { body += ch; if (body.length > 8192) req.destroy(); });
+    req.on('end', () => {
+      let m; try { m = JSON.parse(body); } catch (e) { res.writeHead(400, CORS_JSON); res.end('{"ok":false}'); return; }
+      const tipo = m.tipo === 'bg' ? 'bg' : 'prop';
+      const id = String(m.id || '').replace(/[^a-z0-9_-]/gi, '').slice(0, 32).toLowerCase();
+      const desc = String(m.desc || '').slice(0, 400);
+      if (!id || !desc) { res.writeHead(400, CORS_JSON); res.end('{"ok":false,"log":"id y descripción requeridos"}'); return; }
+      const py = spawn('python3', [path.join(ROOT, 'tools', 'generar_uno.py'), tipo, id, desc], { cwd: ROOT });
+      let out = '', done = false;
+      const finish = (ok, log) => { if (done) return; done = true; clearTimeout(to); res.writeHead(200, CORS_JSON); res.end(JSON.stringify({ ok, id, tipo, log: (log || out).trim().slice(-600) })); };
+      const to = setTimeout(() => { try { py.kill(); } catch (e) {} finish(false, out + '\n(tiempo agotado)'); }, 150000);
+      py.stdout.on('data', d => out += d);
+      py.stderr.on('data', d => out += d);
+      py.on('error', e => finish(false, 'no se pudo ejecutar python3: ' + e.message));
+      py.on('close', () => finish(/(^|\n)OK /.test(out), out));
+      console.log(new Date().toISOString(), `generando ${tipo} "${id}"`);
+    });
+    return;
+  }
+  // ---- Editor de rig de personajes (rig_editor.html, solo en local) ----
+  if (p === '/api/parts') {             // lista personajes y sus piezas disponibles
+    const base = path.join(ROOT, 'assets', 'parts');
+    const out = {};
+    try {
+      for (const id of fs.readdirSync(base)) {
+        const dir = path.join(base, id);
+        if (!fs.statSync(dir).isDirectory()) continue;
+        out[id] = fs.readdirSync(dir).filter(f => f.endsWith('.png')).sort();
+      }
+    } catch (e) {}
+    res.writeHead(200, CORS_JSON);
+    res.end(JSON.stringify(out));
+    return;
+  }
+  if (p === '/api/rig' && req.method === 'POST') {     // guarda rigs.json
+    let body = '';
+    req.on('data', ch => { body += ch; if (body.length > 2_000_000) req.destroy(); });
+    req.on('end', () => {
+      try { JSON.parse(body); } catch (e) { res.writeHead(400, CORS_JSON); res.end('{"ok":false}'); return; }
+      try {
+        fs.writeFileSync(path.join(ROOT, 'rigs.json'), body);
+        console.log(new Date().toISOString(), 'rigs.json guardado por el editor de rig');
+        res.writeHead(200, CORS_JSON); res.end('{"ok":true}');
+      } catch (e) { res.writeHead(500, CORS_JSON); res.end('{"ok":false}'); }
+    });
+    return;
+  }
+  if (p === '/api/generar-parte' && req.method === 'POST') {   // genera UNA pieza con Nano Banana
+    let body = '';
+    req.on('data', ch => { body += ch; if (body.length > 8192) req.destroy(); });
+    req.on('end', () => {
+      let m; try { m = JSON.parse(body); } catch (e) { res.writeHead(400, CORS_JSON); res.end('{"ok":false}'); return; }
+      const id = String(m.id || '').replace(/[^a-z0-9_-]/gi, '').slice(0, 32).toLowerCase();
+      const part = ['torso', 'pierna', 'brazos'].includes(m.part) ? m.part : '';
+      const desc = String(m.desc || '').slice(0, 400);
+      if (!id || !part) { res.writeHead(400, CORS_JSON); res.end('{"ok":false,"log":"id y parte requeridos"}'); return; }
+      const args = [path.join(ROOT, 'tools', 'generar_parte.py'), id, part];
+      if (desc) args.push(desc);
+      const py = spawn('python3', args, { cwd: ROOT });
+      let out = '', done = false;
+      const finish = (ok, log) => { if (done) return; done = true; clearTimeout(to); res.writeHead(200, CORS_JSON); res.end(JSON.stringify({ ok, id, part, log: (log || out).trim().slice(-600) })); };
+      const to = setTimeout(() => { try { py.kill(); } catch (e) {} finish(false, out + '\n(tiempo agotado)'); }, 150000);
+      py.stdout.on('data', d => out += d);
+      py.stderr.on('data', d => out += d);
+      py.on('error', e => finish(false, 'no se pudo ejecutar python3: ' + e.message));
+      py.on('close', () => finish(/(^|\n)OK /.test(out), out));
+      console.log(new Date().toISOString(), `generando parte ${part} de "${id}"`);
+    });
     return;
   }
   if (p === '/') p = '/index.html';

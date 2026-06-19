@@ -10,6 +10,7 @@ function draw(t) {
 
   switch (scene) {
     case 'title':     drawTitle(t); break;
+    case 'opciones':  drawOpciones(t); break;
     case 'controles': drawControles(t); break;
     case 'nombre':  drawNombre(t); break;
     case 'online':  drawOnline(t); break;
@@ -57,6 +58,7 @@ function loop(ts) {
       dtAcc -= FIXED_DT;
     }
   }
+  syncMusic();
   draw(t);
   keyPressQueue.length = 0;
   tapQueue.length = 0;

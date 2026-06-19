@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>KATANA FIGHT — Editor de Personajes</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #14141c; color: #e8e0d0; font-family: 'Courier New', monospace; display: flex; height: 100vh; overflow: hidden; }
+  #izq { flex: 0 0 480px; display: flex; flex-direction: column; align-items: center; padding: 12px; border-right: 1px solid #333; }
+  #cv { background: #2a2a38; border: 1px solid #444; cursor: grab; }
+  #cv.arrastrando { cursor: grabbing; }
+  #poses { margin: 10px 0; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+  button, .btn { background: #2a2a3a; color: #e8e0d0; border: 1px solid #555; padding: 6px 10px; cursor: pointer; font-family: inherit; font-size: 12px; }
+  button.on { background: #b03030; border-color: #e8c050; }
+  #der { flex: 1; overflow-y: auto; padding: 12px 18px; }
+  h2 { color: #e8c050; margin: 10px 0 6px; font-size: 15px; }
+  .fila { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 12px; }
+  .fila label { flex: 0 0 150px; color: #c0b8a8; }
+  .fila input[type=range] { flex: 1; }
+  .fila .val { flex: 0 0 50px; text-align: right; color: #9ad0e8; }
+  select, input[type=text] { background: #1a1a26; color: #e8e0d0; border: 1px solid #555; padding: 5px; font-family: inherit; max-width: 230px; }
+  #gen { margin-top: 12px; border-top: 1px solid #333; padding-top: 8px; }
+  #log { white-space: pre-wrap; font-size: 11px; color: #998; max-height: 80px; overflow-y: auto; background: #0e0e16; padding: 6px; margin-top: 6px; }
+  .ayuda { font-size: 11px; color: #887; margin: 4px 0; }
+  #estado { color: #6ad06a; font-size: 12px; }
+  .selparte { color: #e8c050; }
+</style>
+</head>
+<body>
+<div id="izq">
+  <canvas id="cv" width="460" height="540"></canvas>
+  <div class="ayuda">Haz clic en una parte y <b>arrástrala</b> para moverla · <b>rueda</b> del ratón para agrandar/achicar</div>
+  <div id="poses"></div>
+  <div>
+    <label><input type="checkbox" id="walk"> caminar</label> &nbsp;
+    <label><input type="checkbox" id="anim" checked> animar</label> &nbsp;
+    <label><input type="checkbox" id="mirror"> mirar a la izquierda</label>
+  </div>
+  <div class="ayuda">Parte seleccionada: <span id="selNom" class="selparte">ninguna</span></div>
+</div>
+<div id="der">
+  <h2>EDITOR DE PERSONAJES — Katana Fight</h2>
+  <div class="fila">
+    <label>Personaje</label>
+    <select id="char"></select>
+    <button id="save">GUARDAR</button>
+    <button id="reset" title="volver al rig base">restablecer</button>
+    <span id="estado"></span>
+  </div>
+
+  <h2>Piezas (combina partes de cualquier personaje)</h2>
+  <div class="fila"><label>Torso + cabeza</label><select id="p_torso"></select></div>
+  <div class="fila"><label>Parte baja / piernas</label><select id="p_pierna"></select></div>
+  <div class="fila"><label>Brazos + katana</label><select id="p_brazos"></select></div>
+  <div class="fila">
+    <label>Modo de pierna</label>
+    <select id="legMode"><option value="single">una pierna (se duplica)</option><option value="full">hakama completo (1 pieza)</option></select>
+  </div>
+
+  <h2>Ajuste fino</h2>
+  <div id="sliders"></div>
+
+  <div id="gen">
+    <h2>Generar pieza con Gemini (Nano Banana)</h2>
+    <div class="fila">
+      <label>Pieza</label>
+      <select id="genPart"><option value="torso">torso</option><option value="pierna">pierna</option><option value="brazos">brazos</option></select>
+      <button id="genBtn">GENERAR</button>
+    </div>
+    <div class="fila"><label>Descripción</label><input type="text" id="genDesc" style="flex:1" placeholder="(vacío = descripción del personaje)"></div>
+    <div id="log">listo.</div>
+  </div>
+</div>
+<script>
+// RIG base — debe coincidir con js/render.js (más los offsets de arrastre)
+const BASE = {
+  heightMul: 1, hipFrac: 0.46, shoulderFrac: 0.80, shoulderXFrac: -0.05,
+  torsoHFrac: 0.66, armsWFrac: 0.92, lowerHFrac: 0.56, legHFrac: 0.54,
+  legSplitFrac: 0.05, legSwing: 0.26, lowerSway: 0.06, walkBob: 2.5, seamOverlap: 0.05,
+  torsoAnchorX: 0.5, torsoAnchorY: 1.0, lowerAnchorX: 0.5, lowerAnchorY: 0.04,
+  legAnchorX: 0.5, legAnchorY: 0.06, armsAnchorX: 0.06, armsAnchorY: 0.28,
+  torsoDX: 0, torsoDY: 0, armsDX: 0, armsDY: 0, lowerDX: 0, lowerDY: 0,
+};
+const DEFAULT_FULL = ['maestro', 'gigante', 'sapo', 'abuela'];
+const PUPPET_H = 240;
+
+// sliders de ajuste fino (etiqueta en español). El moverlas/escalarlas se hace
+// arrastrando en la imagen; estas barras son para detalles.
+const SLIDERS = [
+  ['heightMul', 'tamaño general', 0.5, 1.8, 0.01],
+  ['hipFrac', 'altura de la cintura', 0.3, 0.6, 0.005],
+  ['shoulderFrac', 'altura del hombro', 0.6, 0.95, 0.005],
+  ['shoulderXFrac', 'hombro adelante/atrás', -0.3, 0.3, 0.005],
+  ['torsoHFrac', 'alto del torso', 0.4, 1.0, 0.005],
+  ['armsWFrac', 'largo de brazos/katana', 0.5, 1.4, 0.005],
+  ['lowerHFrac', 'alto del hakama', 0.3, 0.85, 0.005],
+  ['legHFrac', 'alto de la pierna', 0.3, 0.8, 0.005],
+  ['legSplitFrac', 'separación de piernas', 0, 0.15, 0.005],
+  ['seamOverlap', 'solape de la cintura', 0, 0.15, 0.005],
+  ['legSwing', 'zancada al caminar', 0, 0.5, 0.01],
+  ['lowerSway', 'mecida al caminar', 0, 0.2, 0.005],
+  ['walkBob', 'rebote al caminar', 0, 8, 0.1],
+  ['armsAnchorX', 'pivote brazos X', 0, 1, 0.01],
+  ['armsAnchorY', 'pivote brazos Y', 0, 1, 0.01],
+  ['torsoAnchorX', 'pivote torso X', 0, 1, 0.01],
+  ['torsoAnchorY', 'pivote torso Y', 0, 1, 0.01],
+];
+
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+let rigData = {}, chars = {}, cur = null;
+let R = Object.assign({}, BASE);
+let legMode = 'single';
+let partPaths = { torso: '', pierna: '', brazos: '' };
+let imgs = { torso: new Image(), pierna: new Image(), brazos: new Image() };
+let pose = 'idle', thrust = false;
+let boxes = [], sel = null;          // cajas de las piezas y la seleccionada
+
+async function init() {
+  try { rigData = await (await fetch('rigs.json?_=' + Date.now())).json() || {}; } catch (e) { rigData = {}; }
+  try { chars = await (await fetch('/api/parts')).json(); } catch (e) { chars = {}; }
+  const sel0 = document.getElementById('char');
+  Object.keys(chars).sort().forEach(id => sel0.add(new Option(id, id)));
+  sel0.onchange = () => loadChar(sel0.value);
+  buildSliders(); buildPoses(); fillPartPickers();
+  if (sel0.options.length) loadChar(sel0.options[0].value);
+  requestAnimationFrame(loop);
+}
+
+// lista TODOS los archivos de pieza de TODOS los personajes (para combinar)
+function fillPartPickers() {
+  const all = [];
+  for (const id of Object.keys(chars).sort())
+    for (const f of chars[id]) all.push(id + '/' + f);
+  for (const part of ['torso', 'pierna', 'brazos']) {
+    const sel = document.getElementById('p_' + part);
+    sel.innerHTML = '';
+    all.forEach(p => sel.add(new Option(p, p)));
+    sel.onchange = () => { partPaths[part] = sel.value; loadImg(part); };
+  }
+}
+function loadImg(part) {
+  imgs[part] = new Image();
+  imgs[part].src = 'assets/parts/' + partPaths[part] + '?_=' + Date.now();
+}
+
+function loadChar(id) {
+  cur = id;
+  const ov = rigData[id] || {};
+  R = Object.assign({}, BASE, flat(ov));
+  legMode = ov.legMode || (DEFAULT_FULL.includes(id) ? 'full' : 'single');
+  document.getElementById('legMode').value = legMode;
+  const ovp = ov.parts || {};
+  for (const part of ['torso', 'pierna', 'brazos']) {
+    partPaths[part] = ovp[part] || (id + '/' + part + '.png');
+    document.getElementById('p_' + part).value = partPaths[part];
+    loadImg(part);
+  }
+  syncSliders();
+}
+function syncSliders() {
+  for (const [k] of SLIDERS) { const el = document.getElementById('s_' + k); if (el) { el.value = R[k]; el.nextElementSibling.textContent = (+R[k]).toFixed(3); } }
+}
+
+function flat(o) {
+  const r = Object.assign({}, o);
+  for (const a of ['torsoAnchor', 'lowerAnchor', 'legAnchor', 'armsAnchor'])
+    if (Array.isArray(o[a])) { r[a + 'X'] = o[a][0]; r[a + 'Y'] = o[a][1]; delete r[a]; }
+  delete r.legMode; delete r.parts;
+  return r;
+}
+function unflat() {
+  const o = {};
+  for (const k of Object.keys(BASE)) if (Math.abs(R[k] - BASE[k]) > 1e-6) o[k] = +(+R[k]).toFixed(4);
+  for (const a of ['torsoAnchor', 'lowerAnchor', 'legAnchor', 'armsAnchor'])
+    if (o[a + 'X'] !== undefined || o[a + 'Y'] !== undefined) { o[a] = [R[a + 'X'] ?? BASE[a + 'X'], R[a + 'Y'] ?? BASE[a + 'Y']]; delete o[a + 'X']; delete o[a + 'Y']; }
+  o.legMode = legMode;
+  const parts = {};
+  for (const part of ['torso', 'pierna', 'brazos'])
+    if (partPaths[part] && partPaths[part] !== cur + '/' + part + '.png') parts[part] = partPaths[part];
+  if (Object.keys(parts).length) o.parts = parts;
+  return o;
+}
+
+function buildSliders() {
+  const box = document.getElementById('sliders');
+  for (const [k, lbl, mn, mx, st] of SLIDERS) {
+    const row = document.createElement('div'); row.className = 'fila';
+    row.innerHTML = `<label>${lbl}</label><input type="range" id="s_${k}" min="${mn}" max="${mx}" step="${st}"><span class="val"></span>`;
+    box.appendChild(row);
+    const inp = row.querySelector('input');
+    inp.oninput = () => { R[k] = +inp.value; inp.nextElementSibling.textContent = (+inp.value).toFixed(3); };
+  }
+  document.getElementById('legMode').onchange = e => legMode = e.target.value;
+}
+function buildPoses() {
+  const box = document.getElementById('poses');
+  [['idle', 'reposo'], ['windup', 'levantar'], ['attack', 'corte'], ['thrust', 'estocada'], ['guard', 'guardia'], ['recover', 'recuperar']].forEach(([id, lbl]) => {
+    const b = document.createElement('button'); b.textContent = lbl;
+    b.onclick = () => { thrust = id === 'thrust'; pose = id === 'thrust' ? 'attack' : id; [...box.children].forEach(c => c.classList.remove('on')); b.classList.add('on'); };
+    box.appendChild(b);
+  });
+  box.children[0].classList.add('on');
+}
+
+function poseVals() {
+  let lean = 0, dx = 0, armRot = 0;
+  if (pose === 'windup') { lean = thrust ? -0.06 : -0.12; dx = thrust ? -4 : 0; armRot = thrust ? -0.15 : -1.05; }
+  else if (pose === 'attack') { lean = thrust ? 0.10 : 0.20; dx = thrust ? 24 : 14; armRot = thrust ? 0.02 : 0.55; }
+  else if (pose === 'recover') { lean = thrust ? 0.06 : 0.10; dx = thrust ? 10 : 6; armRot = thrust ? 0 : 0.30; }
+  else if (pose === 'guard') { lean = -0.10; armRot = -0.55; }
+  return { lean, dx, armRot };
+}
+// dibuja una pieza y registra su caja (en pantalla) para poder seleccionarla
+function part(name, img, ax, ay, cx, cy, targetH, targetW, rot, ox, oy, f) {
+  if (!img || !img.width) return;
+  const s = targetH != null ? targetH / img.height : targetW / img.width;
+  const w = img.width * s, h = img.height * s;
+  ctx.save(); ctx.translate(cx, cy); if (rot) ctx.rotate(rot);
+  if (sel === name) { ctx.strokeStyle = '#e8c050'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); ctx.strokeRect(-ax * w, -ay * h, w, h); ctx.setLineDash([]); }
+  ctx.drawImage(img, -ax * w, -ay * h, w, h); ctx.restore();
+  // caja en pantalla (sin rotación, aproximada) para hit-test
+  const x0 = ox + f * (cx - ax * w), x1 = ox + f * (cx + (1 - ax) * w);
+  boxes.push({ name, x0: Math.min(x0, x1), x1: Math.max(x0, x1), y0: oy + (cy - ay * h), y1: oy + (cy + (1 - ay) * h) });
+}
+function render(time) {
+  ctx.clearRect(0, 0, cv.width, cv.height); boxes = [];
+  ctx.strokeStyle = '#444'; ctx.beginPath(); ctx.moveTo(0, 488); ctx.lineTo(cv.width, 488); ctx.stroke();
+  const f = document.getElementById('mirror').checked ? -1 : 1;
+  const anim = document.getElementById('anim').checked, walking = document.getElementById('walk').checked;
+  const bobT = anim ? time / 1000 * 4 : 0, bob = Math.sin(bobT) * 1.5;
+  const H = PUPPET_H * (R.heightMul || 1), hipY = -R.hipFrac * H, shY = -R.shoulderFrac * H;
+  const { lean, dx, armRot } = poseVals();
+  const phase = Math.sin(bobT * 0.4), wbob = walking ? Math.abs(phase) * R.walkBob : 0, seam = R.seamOverlap * H;
+  const ox = cv.width / 2 + f * dx, oy = 488;
+  const tdx = R.torsoDX * H, tdy = R.torsoDY * H, adx = R.armsDX * H, ady = R.armsDY * H, ldx = R.lowerDX * H, ldy = R.lowerDY * H;
+  ctx.save(); ctx.translate(ox, oy); ctx.scale(f, 1);
+  if (legMode === 'full') {
+    const sway = walking ? phase * R.lowerSway : 0;
+    part('pierna', imgs.pierna, R.lowerAnchorX, R.lowerAnchorY, ldx, hipY + wbob - seam + ldy, R.lowerHFrac * H + seam, null, sway, ox, oy, f);
+  } else {
+    const sw = walking ? phase * R.legSwing : 0.05, legH = R.legHFrac * H + seam, split = R.legSplitFrac * H;
+    part('pierna', imgs.pierna, R.legAnchorX, R.legAnchorY, -split + ldx, hipY - seam + ldy, legH, null, -sw, ox, oy, f);
+    part('pierna', imgs.pierna, R.legAnchorX, R.legAnchorY, split + ldx, hipY - seam + ldy, legH, null, sw, ox, oy, f);
+  }
+  part('torso', imgs.torso, R.torsoAnchorX, R.torsoAnchorY, tdx, hipY + bob + wbob + tdy, R.torsoHFrac * H, null, lean, ox, oy, f);
+  part('brazos', imgs.brazos, R.armsAnchorX, R.armsAnchorY, R.shoulderXFrac * H + adx, shY + bob + wbob + ady, null, R.armsWFrac * H, armRot, ox, oy, f);
+  ctx.restore();
+}
+function loop(time) { render(time); requestAnimationFrame(loop); }
+
+// ─── selección + arrastre + rueda ───
+let dragging = false, lastX = 0, lastY = 0;
+function pick(mx, my) {
+  // prioridad: brazos > torso > pierna (los de delante primero)
+  const orden = ['brazos', 'torso', 'pierna'];
+  let best = null, bestRank = 99;
+  for (const b of boxes) {
+    if (mx >= b.x0 && mx <= b.x1 && my >= b.y0 && my <= b.y1) {
+      const r = orden.indexOf(b.name);
+      if (r < bestRank) { bestRank = r; best = b.name; }
+    }
+  }
+  return best;
+}
+cv.addEventListener('mousedown', e => {
+  const r = cv.getBoundingClientRect();
+  const mx = (e.clientX - r.left) * cv.width / r.width, my = (e.clientY - r.top) * cv.height / r.height;
+  const hit = pick(mx, my);
+  if (hit) { sel = hit; document.getElementById('selNom').textContent = nombreParte(hit); dragging = true; lastX = mx; lastY = my; cv.classList.add('arrastrando'); }
+});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const r = cv.getBoundingClientRect();
+  const mx = (e.clientX - r.left) * cv.width / r.width, my = (e.clientY - r.top) * cv.height / r.height;
+  const f = document.getElementById('mirror').checked ? -1 : 1;
+  const H = PUPPET_H * (R.heightMul || 1);
+  const dlx = f * (mx - lastX) / H, dly = (my - lastY) / H;
+  lastX = mx; lastY = my;
+  if (sel === 'brazos') { R.shoulderXFrac += dlx; R.armsDY += dly; }   // x sobre el hombro, y libre
+  else if (sel === 'torso') { R.torsoDX += dlx; R.torsoDY += dly; }
+  else if (sel === 'pierna') { R.lowerDX += dlx; R.lowerDY += dly; }
+  syncSliders();
+});
+window.addEventListener('mouseup', () => { dragging = false; cv.classList.remove('arrastrando'); });
+cv.addEventListener('wheel', e => {
+  if (!sel) return; e.preventDefault();
+  const k = e.deltaY < 0 ? 1.04 : 1 / 1.04;
+  if (sel === 'brazos') R.armsWFrac *= k;
+  else if (sel === 'torso') R.torsoHFrac *= k;
+  else if (sel === 'pierna') { R.legHFrac *= k; R.lowerHFrac *= k; }
+  syncSliders();
+}, { passive: false });
+function nombreParte(n) { return { torso: 'torso + cabeza', pierna: 'pierna / hakama', brazos: 'brazos + katana' }[n] || n; }
+
+// ─── botones ───
+document.getElementById('save').onclick = async () => {
+  rigData[cur] = unflat();
+  const st = document.getElementById('estado');
+  try { st.textContent = (await (await fetch('/api/rig', { method: 'POST', body: JSON.stringify(rigData) })).json()).ok ? '✔ guardado' : '✖ error'; }
+  catch (e) { st.textContent = '✖ sin servidor'; }
+  setTimeout(() => st.textContent = '', 2500);
+};
+document.getElementById('reset').onclick = () => { R = Object.assign({}, BASE); legMode = DEFAULT_FULL.includes(cur) ? 'full' : 'single'; document.getElementById('legMode').value = legMode; syncSliders(); };
+document.getElementById('genBtn').onclick = async () => {
+  const log = document.getElementById('log'), partN = document.getElementById('genPart').value;
+  log.textContent = 'generando ' + partN + ' de ' + cur + '… (~30 s)';
+  try {
+    const d = await (await fetch('/api/generar-parte', { method: 'POST', body: JSON.stringify({ id: cur, part: partN, desc: document.getElementById('genDesc').value }) })).json();
+    log.textContent = (d.ok ? '✔ ' : '✖ ') + d.log;
+    if (d.ok) {                       // recargar listas y la pieza nueva (canónica)
+      try { chars = await (await fetch('/api/parts')).json(); } catch (e) {}
+      fillPartPickers();
+      partPaths[partN] = cur + '/' + partN + '.png';
+      document.getElementById('p_' + partN).value = partPaths[partN];
+      loadImg(partN);
+    }
+  } catch (e) { log.textContent = '✖ sin servidor (corre: cd server && npm start)'; }
+};
+
+init();
+</script>
+</body>
+</html>

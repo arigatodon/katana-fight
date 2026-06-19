@@ -101,7 +101,7 @@ function applyDamage(def, att, dmgRaw) {
   }
   sfxHit();
   shake = 9;
-  spawnParticles(def.x, bodyCenterY(def), 16, ['#c01818', '#901010', '#e03030'], 260, 0.8);
+  spawnBlood(def.x, bodyCenterY(def), att.facing);      // rocío en el sentido del corte
   floatText(def.x, bodyCenterY(def) - 42, '-' + Math.round(dmg), '#ff6050', 18);
   checkPostureBreak(def);
 }
@@ -122,8 +122,9 @@ function kill(victim, killer, ejecucion) {
   victim.state = PSTATE.DEAD;
   victim.stateTimer = 0;
   victim.vida = 0;
-  victim.vx = killer.facing * 320;
-  victim.vy = -260;
+  victim.vx = killer.facing * 200;
+  victim.vy = -180;
+  victim.bloodT = 1.5;            // chorro de sangre mientras yace (estilo samurái)
   killer.wins++;
   if (killer.vida >= VIDA_MAX) killer.stats.perfects++;
   sfxKill();
@@ -131,7 +132,8 @@ function kill(victim, killer, ejecucion) {
   timeScale = 0.15;
   slowmoTimer = 1.0;
   flashTimer = 0.12;
-  spawnParticles(victim.x, bodyCenterY(victim), 50, ['#c01818', '#901010', '#e03030'], 380, 1.2);
+  spawnParticles(victim.x, bodyCenterY(victim), 40, ['#c01818', '#901010', '#e03030'], 380, 1.2);
+  spawnBlood(victim.x, bodyCenterY(victim), killer.facing, 34);   // gran corte: sangre a chorro
   slashTrails.push({
     x1: victim.x - killer.facing * 70, y1: bodyCenterY(victim) - 50,
     x2: victim.x + killer.facing * 70, y2: bodyCenterY(victim) + 40,
@@ -177,7 +179,7 @@ function tryHit(att, def) {
       flashTimer = 0.15;
       timeScale = 0.3; slowmoTimer = 0.22;
       shake = 8;
-      spawnSparks((att.x + def.x) / 2, bodyCenterY(def) - 8);
+      spawnClash((att.x + def.x) / 2, bodyCenterY(def) - 8);
       floatText(def.x, bodyCenterY(def) - 52, '¡PARRY!', '#80e8ff', 22);
     } else {
       // bloqueo normal: sin daño, pierde postura
@@ -210,7 +212,7 @@ function updateCombat() {
   if (bothSwing && facingEachOther && dist < Math.max(p1.reach, p2.reach) * 1.6 &&
       (p1.state === PSTATE.ATTACK || p2.state === PSTATE.ATTACK)) {
     sfxClash();
-    spawnSparks((p1.x + p2.x) / 2, (bodyCenterY(p1) + bodyCenterY(p2)) / 2 - 6);
+    spawnClash((p1.x + p2.x) / 2, (bodyCenterY(p1) + bodyCenterY(p2)) / 2 - 6);
     shake = 10; timeScale = 0.35; slowmoTimer = 0.18;
     for (const p of [p1, p2]) {
       p.state = PSTATE.STAGGER;

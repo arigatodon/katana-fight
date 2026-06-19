@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>KATANA FIGHT — Editor de escenarios</title>
+<style>
+  :root { --bg:#0a0a12; --pan:#14141e; --bd:#2a2a3a; --gold:#e8c050; --txt:#e8e0d0; --dim:#888; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font-family:'Courier New',monospace; font-size:13px;
+         display:flex; height:100vh; overflow:hidden; }
+  h3 { color:var(--gold); margin:0 0 8px; font-size:13px; letter-spacing:1px; }
+  button { background:#222232; color:var(--txt); border:1px solid var(--bd); border-radius:4px;
+           padding:5px 9px; font-family:inherit; font-size:12px; cursor:pointer; }
+  button:hover { border-color:var(--gold); }
+  button.on { background:var(--gold); color:#1a1a1a; border-color:var(--gold); font-weight:bold; }
+  select, input[type=number], input[type=text] { background:#1c1c28; color:var(--txt); border:1px solid var(--bd);
+           border-radius:4px; padding:4px; font-family:inherit; font-size:12px; }
+  label { display:flex; align-items:center; justify-content:space-between; gap:6px; margin:3px 0; }
+  label span { color:var(--dim); }
+  input[type=number] { width:78px; }
+  #left, #right { width:200px; background:var(--pan); border-right:1px solid var(--bd); padding:10px; overflow-y:auto; }
+  #right { border-right:none; border-left:1px solid var(--bd); }
+  #center { flex:1; display:flex; flex-direction:column; align-items:center; padding:10px; overflow:auto; }
+  #bar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:8px; width:960px; max-width:100%; }
+  canvas { background:#000; border:1px solid var(--bd); image-rendering:pixelated; }
+  .pal { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .pal div { border:1px solid var(--bd); border-radius:4px; padding:4px; text-align:center; cursor:pointer; background:#1c1c28; }
+  .pal div:hover { border-color:var(--gold); }
+  .pal img { width:100%; height:42px; object-fit:contain; display:block; }
+  .pal small { font-size:10px; color:var(--dim); word-break:break-all; }
+  #capalist div { padding:3px 5px; border:1px solid var(--bd); border-radius:3px; margin:2px 0; cursor:pointer; font-size:11px;
+                  display:flex; justify-content:space-between; }
+  #capalist div.sel { border-color:var(--gold); background:#2a2616; }
+  #status { color:var(--dim); font-size:11px; margin-left:auto; }
+  .sep { border-top:1px solid var(--bd); margin:10px 0; }
+  .tab { flex:1; }
+  .hint { color:var(--dim); font-size:11px; line-height:1.5; }
+  .zrow { font-size:11px; display:flex; justify-content:space-between; align-items:center; padding:2px 0; }
+</style>
+</head>
+<body>
+<!-- PALETA -->
+<div id="left">
+  <h3>PROPS</h3>
+  <div class="hint">clic = añadir capa al escenario</div>
+  <div class="pal" id="pal"></div>
+</div>
+
+<!-- CENTRO -->
+<div id="center">
+  <div id="bar">
+    <label style="margin:0"><span>Escenario</span> <select id="scene"></select></label>
+    <button class="tab" data-mode="capas" id="m_capas">Capas</button>
+    <button class="tab" data-mode="suelo" id="m_suelo">Suelo</button>
+    <button class="tab" data-mode="zonas" id="m_zonas">Zonas</button>
+    <button class="tab" data-mode="crear" id="m_crear">✨ Crear</button>
+    <button id="play">▶ Animar</button>
+    <button id="save">💾 Guardar</button>
+    <span id="status"></span>
+  </div>
+  <canvas id="cv" width="960" height="540"></canvas>
+  <div class="hint" id="modehint" style="width:960px;max-width:100%;margin-top:6px"></div>
+</div>
+
+<!-- INSPECTOR -->
+<div id="right">
+  <div id="insp_capas">
+    <h3>CAPAS</h3>
+    <div id="capalist"></div>
+    <div class="sep"></div>
+    <div id="props" style="display:none">
+      <label><span>capa</span>
+        <select id="f_capa"><option>cielo</option><option>frente</option></select></label>
+      <label><span>anim</span>
+        <select id="f_anim">
+          <option>deriva</option><option>vuela</option><option>pendulo</option><option>olas</option>
+          <option>koi</option><option>cae</option><option>sube</option><option>lado</option>
+        </select></label>
+      <div id="fields"></div>
+      <label><span>flip ↔</span><input type="checkbox" id="f_flip"></label>
+      <button id="dup">Duplicar</button>
+      <button id="del" style="color:#e88">Borrar</button>
+    </div>
+  </div>
+  <div id="insp_suelo" style="display:none">
+    <h3>SUELO CAMINABLE</h3>
+    <div class="hint">Clic en el lienzo = añadir punto de la curva. Clic derecho = quitar el más cercano.
+      Verde. Si no hay puntos, el suelo es plano.</div>
+    <div class="sep"></div>
+    <button id="suelo_clear">Vaciar curva</button>
+    <button id="suelo_flat">Plano (borde inferior)</button>
+    <div id="suelo_n" class="hint" style="margin-top:6px"></div>
+  </div>
+  <div id="insp_zonas" style="display:none">
+    <h3>ZONAS</h3>
+    <div class="hint">Tipo a dibujar (arrastra en zona vacía para crear). Clic en una zona = seleccionar; arrastra su cuerpo para mover o las esquinas para cambiar el tamaño. Supr la borra.</div>
+    <label><span>nueva</span>
+      <select id="z_tipo">
+        <option value="plataforma">plataforma (azul)</option>
+        <option value="vacio">vacío/caída (rojo)</option>
+        <option value="peligro">peligro/daño (naranja)</option>
+      </select></label>
+    <div class="sep"></div>
+    <div id="zsel_panel" style="display:none">
+      <label><span>seleccionada</span><b id="zsel_tipo"></b></label>
+      <label id="zsel_dmg_row" style="display:none"><span>daño</span><input type="number" id="zsel_dmg" value="10" step="1"></label>
+      <button id="zsel_del" style="color:#e88">Borrar zona</button>
+      <div class="sep"></div>
+    </div>
+    <div id="zlist"></div>
+  </div>
+  <div id="insp_crear" style="display:none">
+    <h3>✨ CREAR CON IA (Nano Banana)</h3>
+    <div class="hint">Genera un fondo o un elemento en el estilo del juego (ukiyo-e). Tarda ~15-30 s. Requiere el server local y la API key.</div>
+    <label><span>qué</span>
+      <select id="g_tipo"><option value="prop">elemento (transparente)</option><option value="bg">fondo</option></select></label>
+    <label><span>nombre</span><input type="text" id="g_id" placeholder="ej: linterna" style="width:120px"></label>
+    <div style="margin:4px 0;color:var(--dim)">descripción:</div>
+    <textarea id="g_desc" rows="4" style="width:100%;background:#1c1c28;color:var(--txt);border:1px solid var(--bd);border-radius:4px;font-family:inherit" placeholder="ej: una linterna de piedra (toro) japonesa"></textarea>
+    <button id="g_go" style="margin-top:6px;width:100%">Generar</button>
+    <div id="g_status" class="hint" style="margin-top:6px"></div>
+  </div>
+</div>
+
+<script src="js/escena.js"></script>
+<script>
+// ─── globals que escena.js espera (no cargamos el juego entero) ───
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const W = 960, H = 540, GROUND = H - 80;
+let gTime = 0;
+let stage = { id: '' };           // escena.js lo usa en drawCapas (aquí llamamos animar directo)
+let escenasData = {};             // escena.js lo asigna al cargar; usamos nuestro DATA
+
+const ZCOL = { plataforma:'#3a78ff', vacio:'#ff3a3a', peligro:'#ff9a30' };
+const Q = id => document.getElementById(id);
+
+let DATA = {};                    // contenido de escenas.json
+let sceneId = '';
+let sc = null;                    // escenario en edición {fondo,suelo,zonas,capas}
+let mode = 'capas';
+let sel = -1;                     // índice de capa seleccionada
+let zsel = -1;                    // índice de zona seleccionada
+let playing = false;
+let bgList = [], propList = [];
+const bgCache = {};
+
+// campos numéricos relevantes por animación
+const FIELDS = {
+  deriva: ['y','h','vx','alpha'],
+  vuela:  ['y','h','vx','alpha','bob','bobAmp'],
+  pendulo:['x','y','h','amp','speed'],
+  olas:   ['x','y','h','amp','speed','sway','alpha'],
+  koi:    ['x','h','yBase','height','period','jump'],
+  cae:    ['x','h','vy','sway','copias','alpha','spin'],
+  sube:   ['x','h','vy','sway','copias'],
+  lado:   ['x','h','amp','speed','phase'],
+};
+const DEF = { x:0.5, y:0.4, h:0.2, alpha:1, vx:18, speed:1, amp:0.05, sway:14, vy:35,
+              copias:2, period:6, jump:1.7, yBase:1.0, height:0.3, phase:0, bob:1.2, bobAmp:7, spin:0 };
+
+// ─────────────────── carga inicial ───────────────────
+async function init() {
+  try {
+    const a = await (await fetch('api/assets')).json();
+    bgList = a.bg; propList = a.props;
+  } catch (e) { setStatus('⚠ sin servidor: abre vía http (node server)'); }
+  try { DATA = await (await fetch('escenas.json')).json() || {}; } catch (e) { DATA = {}; }
+
+  rebuildPal();
+  rebuildSceneList();
+  loadScene(Q('scene').value || 'dojo');
+  requestAnimationFrame(loop);
+}
+function rebuildPal() {
+  const pal = Q('pal');
+  pal.innerHTML = propList.map(id =>
+    `<div data-id="${id}"><img src="assets/props/${id}.png?t=${Date.now()}"><small>${id}</small></div>`).join('');
+  pal.querySelectorAll('div').forEach(d => d.onclick = () => addCapa(d.dataset.id));
+}
+function rebuildSceneList() {
+  const cur = Q('scene').value;
+  const ids = [...new Set([...bgList, ...Object.keys(DATA)])].sort();
+  Q('scene').innerHTML = ids.map(id => `<option ${id===cur?'selected':''}>${id}</option>`).join('');
+  Q('scene').onchange = e => loadScene(e.target.value);
+}
+
+function loadScene(id) {
+  sceneId = id; stage = { id };
+  if (DATA[id]) {
+    sc = JSON.parse(JSON.stringify(DATA[id]));
+  } else {
+    // semilla desde las CAPAS por defecto del juego (escena.js)
+    const base = (typeof CAPAS !== 'undefined' && CAPAS[id]) ? JSON.parse(JSON.stringify(CAPAS[id])) : [];
+    sc = { fondo: bgList.includes(id) ? id : (bgList[0] || id), suelo: [], zonas: [], capas: base };
+  }
+  if (!sc.suelo) sc.suelo = []; if (!sc.zonas) sc.zonas = []; if (!sc.capas) sc.capas = [];
+  if (!bgCache[sc.fondo]) { const im = new Image(); im.src = 'assets/bg/' + sc.fondo + '.png'; bgCache[sc.fondo] = im; }
+  sel = -1; zsel = -1;
+  renderCapaList(); renderZonas(); refreshInspector();
+}
+
+// ─────────────────── capas ───────────────────
+function addCapa(id) {
+  const capa = mode === 'capas' && sel >= 0 ? sc.capas[sel].capa : 'frente';
+  sc.capas.push({ id, capa, anim: 'deriva', x: 0.5, y: 0.35, h: 0.2 });
+  sel = sc.capas.length - 1; setMode('capas'); renderCapaList(); refreshInspector();
+}
+function renderCapaList() {
+  Q('capalist').innerHTML = sc.capas.map((e, i) =>
+    `<div class="${i===sel?'sel':''}" data-i="${i}"><span>${e.id}</span><span style="color:#776">${e.capa}·${e.anim}</span></div>`).join('')
+    || '<div class="hint" style="border:none">— sin capas —</div>';
+  Q('capalist').querySelectorAll('div[data-i]').forEach(d =>
+    d.onclick = () => { sel = +d.dataset.i; renderCapaList(); refreshInspector(); });
+}
+function refreshInspector() {
+  if (!sc) { Q('props').style.display = 'none'; return; }
+  const e = sc.capas[sel];
+  Q('props').style.display = (mode === 'capas' && e) ? '' : 'none';
+  if (!e) return;
+  Q('f_capa').value = e.capa; Q('f_anim').value = e.anim; Q('f_flip').checked = !!e.flip;
+  const fl = FIELDS[e.anim] || [];
+  Q('fields').innerHTML = fl.map(k =>
+    `<label><span>${k}</span><input type="number" step="0.01" data-k="${k}" value="${e[k] != null ? e[k] : DEF[k]}"></label>`).join('');
+  Q('fields').querySelectorAll('input').forEach(inp =>
+    inp.oninput = () => { e[inp.dataset.k] = parseFloat(inp.value); });
+}
+Q('f_capa').onchange = e => { if (sc.capas[sel]) { sc.capas[sel].capa = e.target.value; renderCapaList(); } };
+Q('f_anim').onchange = e => { if (sc.capas[sel]) { sc.capas[sel].anim = e.target.value; refreshInspector(); renderCapaList(); } };
+Q('f_flip').onchange = e => { if (sc.capas[sel]) sc.capas[sel].flip = e.target.checked; };
+Q('del').onclick = () => { if (sel >= 0) { sc.capas.splice(sel, 1); sel = -1; renderCapaList(); refreshInspector(); } };
+Q('dup').onclick = () => { if (sel >= 0) { sc.capas.push(JSON.parse(JSON.stringify(sc.capas[sel]))); sel = sc.capas.length-1; renderCapaList(); refreshInspector(); } };
+
+// ─────────────────── zonas ───────────────────
+function renderZonas() {
+  Q('zlist').innerHTML = sc.zonas.map((z, i) =>
+    `<div class="zrow ${i===zsel?'sel':''}" data-zi="${i}" style="cursor:pointer;border:1px solid ${i===zsel?ZCOL[z.tipo]:'transparent'};padding:2px 4px;border-radius:3px">
+     <span style="color:${ZCOL[z.tipo]}">■ ${z.tipo}</span>
+     <button data-del="${i}" style="padding:1px 6px">✕</button></div>`).join('')
+    || '<div class="hint">— sin zonas —</div>';
+  Q('zlist').querySelectorAll('div[data-zi]').forEach(d =>
+    d.onclick = ev => { if (ev.target.dataset.del != null) return; zsel = +d.dataset.zi; renderZonas(); });
+  Q('zlist').querySelectorAll('button[data-del]').forEach(b =>
+    b.onclick = () => { sc.zonas.splice(+b.dataset.del, 1); zsel = -1; renderZonas(); });
+  // panel de la zona seleccionada
+  const z = sc.zonas[zsel];
+  Q('zsel_panel').style.display = z ? '' : 'none';
+  if (z) {
+    Q('zsel_tipo').textContent = z.tipo; Q('zsel_tipo').style.color = ZCOL[z.tipo];
+    Q('zsel_dmg_row').style.display = z.tipo === 'peligro' ? '' : 'none';
+    Q('zsel_dmg').value = z.dmg || 10;
+  }
+}
+Q('zsel_del').onclick = () => { if (zsel >= 0) { sc.zonas.splice(zsel, 1); zsel = -1; renderZonas(); } };
+Q('zsel_dmg').oninput = e => { if (sc.zonas[zsel]) sc.zonas[zsel].dmg = parseInt(e.target.value) || 10; };
+
+// ─────────────────── modos ───────────────────
+function setMode(m) {
+  mode = m;
+  ['capas','suelo','zonas','crear'].forEach(x => { Q('m_'+x).classList.toggle('on', x===m);
+    Q('insp_'+x).style.display = x===m ? '' : 'none'; });
+  const hints = {
+    capas:'CAPAS: clic en un prop para seleccionarlo · arrástralo para mover · arrastra una esquina (o usa la rueda) para escalar · flechas = ajuste fino · Supr = borrar.',
+    suelo:'SUELO: clic = añadir punto · clic derecho = quitar el más cercano. La curva verde es por donde caminan los luchadores.',
+    zonas:'ZONAS: arrastra en zona vacía para crear (tipo elegido) · clic en una zona para seleccionarla · arrastra su cuerpo o sus esquinas · Supr la borra.',
+    crear:'CREAR: genera fondos o elementos con Nano Banana en el estilo del juego (panel a la derecha).',
+  };
+  Q('modehint').textContent = hints[m];
+  refreshInspector();
+}
+document.querySelectorAll('.tab').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+Q('play').onclick = () => { playing = !playing; Q('play').classList.toggle('on', playing); Q('play').textContent = playing ? '⏸ Pausa' : '▶ Animar'; };
+Q('suelo_clear').onclick = () => { sc.suelo = []; updSueloN(); };
+Q('suelo_flat').onclick = () => { sc.suelo = [[0,(GROUND)/H],[1,(GROUND)/H]]; updSueloN(); };
+function updSueloN(){ Q('suelo_n').textContent = sc.suelo.length + ' puntos'; }
+
+// ─────────────────── geometría de selección ───────────────────
+const HS = 9;   // lado del cuadrito de manija (px)
+// qué campo mueve el arrastre VERTICAL según la animación (algunas no usan 'y')
+const ANIM_Y = { deriva:'y', vuela:'y', pendulo:'y', olas:'y', koi:'yBase' };
+function capaYField(e){ return ANIM_Y[e.anim] || null; }
+function capaY(e){ const f = capaYField(e);
+  if (f && e[f] != null) return e[f];
+  if (e.y != null) return e.y;
+  return e.anim === 'lado' ? GROUND / H : 0.5;   // ancla visible aunque la anim no use y
+}
+function boxCapa(i){ const e=sc.capas[i], im=escImg(e.id); if(!im) return null;
+  const h=e.h*H, w=im.naturalWidth/im.naturalHeight*h; return {x:e.x*W-w/2, y:capaY(e)*H-h/2, w, h}; }
+function boxZona(i){ const z=sc.zonas[i]; const y0=(z.y0!=null?z.y0:0.5), y1=(z.y1!=null?z.y1:1);
+  return {x:z.x0*W, y:y0*H, w:(z.x1-z.x0)*W, h:(y1-y0)*H}; }
+function corners(b){ return [[b.x,b.y],[b.x+b.w,b.y],[b.x,b.y+b.h],[b.x+b.w,b.y+b.h]]; } // TL TR BL BR
+function hitHandle(b,p){ if(!b) return -1; const c=corners(b);
+  for(let i=0;i<4;i++) if(Math.abs(p.x-c[i][0])<=HS && Math.abs(p.y-c[i][1])<=HS) return i; return -1; }
+function inBox(b,p){ return b && p.x>=b.x && p.x<=b.x+b.w && p.y>=b.y && p.y<=b.y+b.h; }
+function hitCapa(p){ for(let i=sc.capas.length-1;i>=0;i--) if(inBox(boxCapa(i),p)) return i; return -1; }
+function hitZona(p){ for(let i=sc.zonas.length-1;i>=0;i--) if(inBox(boxZona(i),p)) return i; return -1; }
+
+// ─────────────────── interacción en el lienzo ───────────────────
+function pos(ev){ const r = cv.getBoundingClientRect(); return { x:(ev.clientX-r.left)*W/r.width, y:(ev.clientY-r.top)*H/r.height }; }
+let drag = null;
+cv.addEventListener('mousedown', ev => {
+  const p = pos(ev);
+  if (mode === 'capas') {
+    if (sel>=0 && hitHandle(boxCapa(sel),p)>=0) { drag={resizeCapa:true}; return; }   // esquina → escalar
+    sel = hitCapa(p); renderCapaList(); refreshInspector();
+    if (sel>=0) drag = { moveCapa:true, dx:p.x-sc.capas[sel].x*W, dy:p.y-capaY(sc.capas[sel])*H };
+  } else if (mode === 'suelo') {
+    if (ev.button === 2) return;
+    sc.suelo.push([+(p.x/W).toFixed(3), +(p.y/H).toFixed(3)]);
+    sc.suelo.sort((a,b)=>a[0]-b[0]); updSueloN();
+  } else if (mode === 'zonas') {
+    if (zsel>=0) { const hc=hitHandle(boxZona(zsel),p); if(hc>=0){ drag={resizeZona:true,corner:hc}; return; } }  // esquina → tamaño
+    const hi = hitZona(p);
+    if (hi>=0) { zsel=hi; renderZonas(); const b=boxZona(hi); drag={moveZona:true, dx:p.x-b.x, dy:p.y-b.y}; }
+    else { drag={ newzona:true, x0:p.x, y0:p.y, x1:p.x, y1:p.y }; }   // zona vacía → dibujar nueva
+  }
+});
+window.addEventListener('mousemove', ev => {
+  if (!drag) return; const p = pos(ev);
+  if (drag.newzona) { drag.x1 = p.x; drag.y1 = p.y; }
+  else if (drag.moveCapa && sel>=0) { const e=sc.capas[sel]; e.x=+((p.x-drag.dx)/W).toFixed(3);
+    const f=capaYField(e); if (f) e[f]=+((p.y-drag.dy)/H).toFixed(3); refreshInspector(); }
+  else if (drag.resizeCapa && sel>=0) { const e=sc.capas[sel]; e.h=Math.max(0.03,+(2*Math.abs(p.y-capaY(e)*H)/H).toFixed(3)); refreshInspector(); }
+  else if (drag.moveZona && zsel>=0) { const z=sc.zonas[zsel], w=z.x1-z.x0;
+    const y0=(z.y0!=null?z.y0:0.5), y1=(z.y1!=null?z.y1:1), hy=y1-y0;
+    const nx=(p.x-drag.dx)/W, ny=(p.y-drag.dy)/H;
+    z.x0=+nx.toFixed(3); z.x1=+(nx+w).toFixed(3); z.y0=+ny.toFixed(3); z.y1=+(ny+hy).toFixed(3);
+    if (z.tipo==='plataforma') z.y=z.y0; }
+  else if (drag.resizeZona && zsel>=0) { const z=sc.zonas[zsel];
+    let x0=z.x0*W, x1=z.x1*W, y0=(z.y0!=null?z.y0:0.5)*H, y1=(z.y1!=null?z.y1:1)*H;
+    const c=drag.corner;
+    if (c===0){x0=p.x;y0=p.y;} else if (c===1){x1=p.x;y0=p.y;} else if (c===2){x0=p.x;y1=p.y;} else {x1=p.x;y1=p.y;}
+    z.x0=+(Math.min(x0,x1)/W).toFixed(3); z.x1=+(Math.max(x0,x1)/W).toFixed(3);
+    z.y0=+(Math.min(y0,y1)/H).toFixed(3); z.y1=+(Math.max(y0,y1)/H).toFixed(3);
+    if (z.tipo==='plataforma') z.y=z.y0; }
+});
+window.addEventListener('mouseup', () => {
+  if (drag && drag.newzona) {
+    const x0=Math.min(drag.x0,drag.x1)/W, x1=Math.max(drag.x0,drag.x1)/W;
+    const y0=Math.min(drag.y0,drag.y1)/H, y1=Math.max(drag.y0,drag.y1)/H;
+    if (x1-x0>0.01 && y1-y0>0.01) {
+      const tipo=Q('z_tipo').value;
+      const z={ tipo, x0:+x0.toFixed(3), x1:+x1.toFixed(3), y0:+y0.toFixed(3), y1:+y1.toFixed(3) };
+      if (tipo==='plataforma') z.y=+y0.toFixed(3);   // la superficie es el borde superior
+      if (tipo==='peligro') z.dmg=10;
+      sc.zonas.push(z); zsel=sc.zonas.length-1; renderZonas();
+    }
+  }
+  drag = null;
+});
+cv.addEventListener('contextmenu', ev => {
+  ev.preventDefault();
+  if (mode === 'suelo' && sc.suelo.length) {
+    const p = pos(ev); let bi=0, bd=1e9;
+    sc.suelo.forEach((s,i)=>{ const d=Math.hypot(s[0]*W-p.x, s[1]*H-p.y); if(d<bd){bd=d;bi=i;} });
+    sc.suelo.splice(bi,1); updSueloN();
+  }
+});
+cv.addEventListener('wheel', ev => {
+  if (mode==='capas' && sel>=0) { ev.preventDefault();
+    sc.capas[sel].h = Math.max(0.03, +(sc.capas[sel].h * (ev.deltaY<0?1.06:0.94)).toFixed(3)); refreshInspector(); }
+}, { passive:false });
+window.addEventListener('keydown', ev => {
+  if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  if (ev.key==='Delete' || ev.key==='Backspace') {
+    if (mode==='capas' && sel>=0) Q('del').onclick();
+    else if (mode==='zonas' && zsel>=0) Q('zsel_del').onclick();
+  }
+  if (mode==='capas' && sel>=0) {   // flechas = ajuste fino (Shift = más)
+    const e=sc.capas[sel], s=ev.shiftKey?0.02:0.004, f=capaYField(e);
+    if (ev.key==='ArrowLeft'){ e.x=+(e.x-s).toFixed(3); ev.preventDefault(); }
+    else if (ev.key==='ArrowRight'){ e.x=+(e.x+s).toFixed(3); ev.preventDefault(); }
+    else if (ev.key==='ArrowUp' && f){ e[f]=+(capaY(e)-s).toFixed(3); ev.preventDefault(); }
+    else if (ev.key==='ArrowDown' && f){ e[f]=+(capaY(e)+s).toFixed(3); ev.preventDefault(); }
+    refreshInspector();
+  }
+});
+
+// ─────────────────── guardar ───────────────────
+Q('save').onclick = async () => {
+  // limpia campos auxiliares de dibujo antes de persistir
+  DATA[sceneId] = JSON.parse(JSON.stringify(sc));
+  try {
+    const r = await fetch('api/escena', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(DATA, null, 1) });
+    setStatus((await r.json()).ok ? '✓ guardado en escenas.json' : '⚠ error al guardar');
+  } catch (e) { setStatus('⚠ sin servidor para guardar'); }
+};
+function setStatus(s){ Q('status').textContent = s; }
+
+// ─────────────────── crear con IA (Nano Banana) ───────────────────
+Q('g_go').onclick = async () => {
+  const tipo = Q('g_tipo').value, id = Q('g_id').value.trim().toLowerCase().replace(/[^a-z0-9_-]/g,''), desc = Q('g_desc').value.trim();
+  if (!id || !desc) { Q('g_status').textContent = '⚠ pon un nombre y una descripción'; return; }
+  Q('g_status').textContent = '⏳ generando con Nano Banana… (~15-30 s)'; Q('g_go').disabled = true;
+  try {
+    const r = await fetch('api/generar', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tipo, id, desc }) });
+    const j = await r.json();
+    if (j.ok) {
+      Q('g_status').textContent = '✓ creado: ' + j.id + (tipo==='prop' ? ' — arrástralo desde la paleta' : ' — fondo aplicado');
+      const a = await (await fetch('api/assets')).json(); bgList = a.bg; propList = a.props;
+      if (tipo === 'prop') { delete escImgs[j.id]; escImg(j.id); rebuildPal(); }
+      else { delete bgCache[j.id]; const im = new Image(); im.src = 'assets/bg/' + j.id + '.png?t=' + Date.now(); bgCache[j.id] = im;
+             sc.fondo = j.id; rebuildSceneList(); }
+    } else { Q('g_status').textContent = '⚠ ' + (j.log ? j.log.split('\n').pop() : 'falló la generación'); }
+  } catch (e) { Q('g_status').textContent = '⚠ sin servidor para generar'; }
+  Q('g_go').disabled = false;
+};
+
+// ─────────────────── render ───────────────────
+function dibujarLuchador(cx){ const top = GROUND-150;
+  ctx.fillStyle='rgba(15,18,30,0.55)';
+  ctx.beginPath(); ctx.arc(cx,top,15,0,7); ctx.fill();
+  ctx.fillRect(cx-15,top+14,30,80); ctx.fillRect(cx-14,top+92,12,54); ctx.fillRect(cx+2,top+92,12,54);
+}
+function loop(t) {
+  gTime = t/1000;
+  if (!sc) { requestAnimationFrame(loop); return; }
+  ctx.clearRect(0,0,W,H);
+  const bg = bgCache[sc.fondo];
+  if (bg && bg.complete && bg.naturalWidth) ctx.drawImage(bg,0,0,W,H);
+  else { ctx.fillStyle='#16202c'; ctx.fillRect(0,0,W,H); }
+
+  // capas detrás
+  drawCapaLayer('cielo');
+  dibujarLuchador(W*0.37); dibujarLuchador(W*0.63);
+  drawCapaLayer('frente');
+
+  // guías de suelo y zonas (siempre visibles)
+  dibujarSuelo(); dibujarZonas(); if (drag && drag.newzona) dibujarRectDrag();
+  if (mode==='capas') marcarSeleccion();
+  requestAnimationFrame(loop);
+}
+function drawHandles(b, color){
+  corners(b).forEach(c => { ctx.fillStyle=color; ctx.fillRect(c[0]-HS/2,c[1]-HS/2,HS,HS);
+    ctx.strokeStyle='#000'; ctx.lineWidth=1; ctx.strokeRect(c[0]-HS/2,c[1]-HS/2,HS,HS); });
+}
+function drawCapaLayer(capa){
+  for (let i=0;i<sc.capas.length;i++){ const e=sc.capas[i]; if (e.capa!==capa) continue;
+    if (playing) { animar(e); }
+    else { const im=escImg(e.id); if(im) escBlit(im, e.x*W, capaY(e)*H, e.h*H, {flip:e.flip, alpha:e.alpha}); }
+  }
+}
+function marcarSeleccion(){
+  if (sel<0) return; const b=boxCapa(sel); if(!b) return;
+  const gold=getCss('--gold')||'#e8c050';
+  ctx.strokeStyle=gold; ctx.lineWidth=2; ctx.setLineDash([5,4]);
+  ctx.strokeRect(b.x,b.y,b.w,b.h); ctx.setLineDash([]);
+  drawHandles(b, gold);
+}
+function getCss(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+function dibujarSuelo(){
+  const pts = sc.suelo;
+  ctx.lineWidth=3; ctx.strokeStyle='#46e060'; ctx.fillStyle='#46e060';
+  if (pts.length>=2){ ctx.beginPath(); pts.forEach((s,i)=> i?ctx.lineTo(s[0]*W,s[1]*H):ctx.moveTo(s[0]*W,s[1]*H)); ctx.stroke(); }
+  else if (sceneId==='puente' && typeof PUENTE_DECK!=='undefined'){ /* nota: el juego usa el arco por defecto */ }
+  pts.forEach(s=>{ ctx.beginPath(); ctx.arc(s[0]*W,s[1]*H,4,0,7); ctx.fill(); });
+  if (!pts.length){ ctx.setLineDash([4,6]); ctx.beginPath(); ctx.moveTo(0,GROUND); ctx.lineTo(W,GROUND); ctx.stroke(); ctx.setLineDash([]); }
+}
+function dibujarZonas(){
+  sc.zonas.forEach((z,i)=>{ const c=ZCOL[z.tipo]||'#fff';
+    const x0=z.x0*W, x1=z.x1*W; const y0=(z.y0!=null?z.y0:0.5)*H, y1=(z.y1!=null?z.y1:1)*H;
+    ctx.fillStyle=c+'33'; ctx.fillRect(x0,y0,x1-x0,y1-y0);
+    ctx.strokeStyle=c; ctx.lineWidth=(mode==='zonas'&&i===zsel)?3:2; ctx.strokeRect(x0,y0,x1-x0,y1-y0);
+    if (z.tipo==='plataforma'){ ctx.fillStyle=c; ctx.fillRect(x0,z.y*H-2,x1-x0,4); }
+    ctx.fillStyle=c; ctx.font='11px monospace'; ctx.fillText(z.tipo, x0+3, y0+12);
+    if (mode==='zonas' && i===zsel) drawHandles(boxZona(i), c);
+  });
+}
+function dibujarRectDrag(){ const c=ZCOL[Q('z_tipo').value];
+  const x=Math.min(drag.x0,drag.x1), y=Math.min(drag.y0,drag.y1);
+  ctx.strokeStyle=c; ctx.lineWidth=2; ctx.setLineDash([6,4]);
+  ctx.strokeRect(x,y,Math.abs(drag.x1-drag.x0),Math.abs(drag.y1-drag.y0)); ctx.setLineDash([]);
+}
+
+setMode('capas');
+init();
+</script>
+</body>
+</html>

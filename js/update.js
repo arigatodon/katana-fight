@@ -131,6 +131,29 @@ function updatePlayer(p, foe, isP1, dt) {
     p.y = groundY(p.x);   // caminando sobre el suelo curvo (puente): pies en la curva
   } else p.onGround = false;
 
+  // zonas marcadas en el editor (escenas.json): plataforma saltable,
+  // vacío (caída mortal) y peligro (daño). Aditivo: solo si hay datos.
+  const _def = escenasData && escenasData[stage.id];
+  if (_def && _def.zonas && p.state !== PSTATE.DEAD && scene === 'fight') {
+    for (const z of _def.zonas) {
+      const dentro = p.x > z.x0 * W && p.x < z.x1 * W;
+      if (z.tipo === 'plataforma') {
+        const zy = z.y * H;
+        if (p.vy >= 0 && !inp.down && dentro && prevY <= zy + 0.5 && p.y >= zy) {
+          p.y = zy; p.vy = 0; p.onGround = true; p.jumpsUsed = 0;
+        }
+      } else if (z.tipo === 'vacio' && dentro && p.onGround) {
+        fallDeath(p); return;
+      } else if (z.tipo === 'peligro' && dentro && p.onGround && !p.burnCD) {
+        p.burnCD = 0.8;
+        p.vida = Math.max(1, p.vida - (z.dmg || 10));
+        p.vy = -300; p.onGround = false;
+        sfxHit();
+        floatText(p.x, bodyCenterY(p), '-' + (z.dmg || 10) + ' ¡PELIGRO!', '#ff8830', 15);
+      }
+    }
+  }
+
   // límites: en el puente se puede caer
   if (p.state !== PSTATE.DEAD) {
     if (stage.id === 'puente' && scene === 'fight') {
@@ -176,7 +199,26 @@ function updatePlayer(p, foe, isP1, dt) {
     if (p.afterimages[i].life <= 0) p.afterimages.splice(i, 1);
   }
 
-  if (p.state === PSTATE.DEAD) p.deathT += dt;
+  if (p.state === PSTATE.DEAD) {
+    p.deathT += dt;
+    // chorro de sangre a presión hacia arriba mientras el cuerpo yace,
+    // como en las películas de samuráis (arquea y cae por gravedad)
+    if (p.bloodT > 0) {
+      p.bloodT -= dt;
+      const n = 2 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < n; i++) {
+        particles.push({
+          x: p.x + (Math.random() - 0.5) * 12,
+          y: bodyCenterY(p),
+          vx: (Math.random() - 0.5) * 150,
+          vy: -360 - Math.random() * 320,
+          life: 0.7 + Math.random() * 0.6, maxLife: 1.3,
+          color: ['#c01818', '#8e0e0e', '#e03030', '#a01414'][Math.floor(Math.random() * 4)],
+          size: 2.5 + Math.random() * 3.5, gravity: true,
+        });
+      }
+    }
+  }
   p.bob += dt * 4;
 }
 

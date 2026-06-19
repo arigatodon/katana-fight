@@ -1,0 +1,1 @@
+{"sapo":{"legHFrac":0.535,"legSplitFrac":0.01,"lowerAnchor":[0.5,0.05],"legMode":"single"},"abuela":{"shoulderXFrac":-0.0915,"legSplitFrac":0.055,"legSwing":0.28,"torsoDX":0.0208,"torsoDY":-0.0042,"armsDY":0.0042,"lowerDX":0.0249,"lowerDY":0.0208,"legMode":"single","parts":{"pierna":"bandido/pierna.png","brazos":"bandido/brazos.png"}}}
