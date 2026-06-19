@@ -53,30 +53,34 @@ const CHARS = [
 
 // Personajes secretos: el jefe final del torneo es uno de ellos.
 // Si lo vences, se desbloquea y entra a tu baraja de personajes.
+//
+// Todos los jefes sorpresa son GIGANTES: imponen tamaño, alcance y
+// rompen defensas, pero para nivelar la ventaja del gigante son LENTOS
+// (windup largo, poca agilidad). Cada uno conserva su sello propio.
 const SECRET_CHARS = [
-  { id: 'gallina', name: 'GALLINA SAMURAI', kanji: '鶏', desc: 'Muy rápida y con gran salto', secret: true,
-    stats: { corte: 12, postura: 8, agilidad: 38, engano: 22, reflejos: 24, espiritu: 16 },
-    scale: 0.7, jumpMul: 1.45, head: 'gallina',
+  { id: 'gallina', name: 'GALLINA COLOSAL', kanji: '鶏', desc: 'Gigante: salta altísimo pero pesa al caer', secret: true,
+    stats: { corte: 22, postura: 22, agilidad: 12, engano: 14, reflejos: 16, espiritu: 16 },
+    scale: 1.24, windupMul: 1.4, dmgMul: 1.12, breakMul: 2.0, jumpMul: 1.3, head: 'gallina',
     pal: pal('#f4f0e4', '#d4ccb8', '#e8d8b8', '#c4b494', '#e03020', '#f0c040', '#f4f0e4') },
 
-  { id: 'sapo', name: 'SAPO RONIN', kanji: '蛙', desc: 'Rebota al aterrizar', secret: true,
-    stats: { corte: 18, postura: 18, agilidad: 24, engano: 14, reflejos: 16, espiritu: 22 },
-    scale: 0.88, bounce: true, head: 'sapo',
+  { id: 'sapo', name: 'SAPO TITÁN', kanji: '蛙', desc: 'Gigante: rebota al aterrizar y aplasta', secret: true,
+    stats: { corte: 24, postura: 26, agilidad: 8, engano: 10, reflejos: 12, espiritu: 20 },
+    scale: 1.30, windupMul: 1.55, dmgMul: 1.18, breakMul: 2.3, bounce: true, head: 'sapo',
     pal: pal('#5a8a3a', '#44682a', '#3a5226', '#28381a', '#d0e060', '#88b050', '#2e4a1e') },
 
-  { id: 'mapache', name: 'MAPACHE LADRÓN', kanji: '狸', desc: 'Roba postura al golpear', secret: true,
-    stats: { corte: 16, postura: 14, agilidad: 26, engano: 28, reflejos: 16, espiritu: 18 },
-    scale: 0.85, steal: true, head: 'mapache',
+  { id: 'mapache', name: 'MAPACHE COLOSO', kanji: '狸', desc: 'Gigante: roba postura con cada golpe', secret: true,
+    stats: { corte: 22, postura: 22, agilidad: 10, engano: 22, reflejos: 14, espiritu: 18 },
+    scale: 1.26, windupMul: 1.5, dmgMul: 1.12, breakMul: 2.2, steal: true, head: 'mapache',
     pal: pal('#6a6a72', '#50505a', '#3a3a42', '#28282e', '#e8a030', '#9a9aa4', '#28282e') },
 
-  { id: 'tiburon', name: 'TIBURÓN DE TIERRA', kanji: '鮫', desc: 'Su salto es un deslizamiento veloz', secret: true,
-    stats: { corte: 24, postura: 18, agilidad: 28, engano: 10, reflejos: 14, espiritu: 14 },
-    slide: true, head: 'tiburon',
+  { id: 'tiburon', name: 'TIBURÓN LEVIATÁN', kanji: '鮫', desc: 'Gigante: embiste deslizándose pese a su mole', secret: true,
+    stats: { corte: 26, postura: 22, agilidad: 14, engano: 8, reflejos: 12, espiritu: 14 },
+    scale: 1.28, windupMul: 1.45, dmgMul: 1.15, breakMul: 2.3, slide: true, head: 'tiburon',
     pal: pal('#5a7a9a', '#446080', '#2a3a4e', '#1c2836', '#c0e8f8', '#7a9ab8', '#34495e') },
 
-  { id: 'abuela', name: 'ABUELA DEL BARRIO', kanji: '婆', desc: 'Lenta, pero muy precisa', secret: true,
-    stats: { corte: 26, postura: 24, agilidad: 5, engano: 12, reflejos: 38, espiritu: 28 },
-    scale: 0.85, parryMul: 1.8, head: 'abuela',
+  { id: 'abuela', name: 'ABUELA MONUMENTAL', kanji: '婆', desc: 'Gigante: lentísima, pero su parada es letal', secret: true,
+    stats: { corte: 26, postura: 28, agilidad: 5, engano: 12, reflejos: 34, espiritu: 26 },
+    scale: 1.26, windupMul: 1.6, dmgMul: 1.15, breakMul: 2.2, parryMul: 1.8, head: 'abuela',
     pal: pal('#c8a8c0', '#a4849c', '#5a4a56', '#42363e', '#e8c8d8', '#e8c8a8', '#e4e0dc') },
 ];
 
