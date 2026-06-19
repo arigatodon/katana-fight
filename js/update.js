@@ -118,15 +118,17 @@ function updatePlayer(p, foe, isP1, dt) {
     p.vy = 0;
     p.onGround = true;
     p.jumpsUsed = 0;
-  } else if (p.y >= GROUND) {
+  } else if (p.y >= groundY(p.x)) {
     const wasAir = !p.onGround;
-    p.y = GROUND; p.vy = 0; p.onGround = true; p.jumpsUsed = 0;
+    p.y = groundY(p.x); p.vy = 0; p.onGround = true; p.jumpsUsed = 0;
     // Sapo Ronin: rebota al aterrizar
     if (wasAir && p.char.bounce && p.state !== PSTATE.DEAD) {
       p.vy = p.jumpVel * 0.45;
       p.onGround = false;
       sfxJump();
     }
+  } else if (p.onGround && p.vy >= 0) {
+    p.y = groundY(p.x);   // caminando sobre el suelo curvo (puente): pies en la curva
   } else p.onGround = false;
 
   // límites: en el puente se puede caer

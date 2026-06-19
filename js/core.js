@@ -12,6 +12,34 @@ const GROUND = H - 80;
 // solo los personajes ágiles (salto alto) puedan subir desde la arena
 const BARANDA_Y = GROUND - 64;
 const BARANDA_X0 = W * 0.14, BARANDA_X1 = W * 0.86;
+
+// El PUENTE es un arco ASIMÉTRICO (tal como está pintado en assets/bg/puente.png):
+// la cima cae a la izquierda del centro y el lado derecho baja más. PUENTE_DECK es
+// la cubierta detectada del cuadro en pares [xfrac, yfrac]; groundY(x) interpola
+// entre puntos para que los pies sigan la curva. En el resto de escenarios el suelo
+// es plano (GROUND). Es determinista (no usa rnd) → seguro en online.
+const PUENTE_DECK = [
+  [0.10, 0.485], [0.14, 0.465], [0.18, 0.450], [0.22, 0.439], [0.26, 0.428],
+  [0.30, 0.417], [0.34, 0.411], [0.38, 0.409], [0.42, 0.411], [0.46, 0.417],
+  [0.50, 0.424], [0.54, 0.437], [0.58, 0.450], [0.62, 0.469], [0.66, 0.487],
+  [0.70, 0.511], [0.74, 0.535], [0.78, 0.563], [0.82, 0.596], [0.86, 0.633],
+  [0.90, 0.670],
+];
+function groundY(x) {
+  if (typeof stage !== 'undefined' && stage && stage.id === 'puente') {
+    const fx = x / W, t = PUENTE_DECK, n = t.length;
+    if (fx <= t[0][0]) return t[0][1] * H;
+    if (fx >= t[n - 1][0]) return t[n - 1][1] * H;
+    for (let i = 0; i < n - 1; i++) {
+      if (fx <= t[i + 1][0]) {
+        const u = (fx - t[i][0]) / (t[i + 1][0] - t[i][0]);
+        return (t[i][1] + (t[i + 1][1] - t[i][1]) * u) * H;
+      }
+    }
+  }
+  return GROUND;
+}
+
 const WIN_ROUNDS = 2;          // rondas para ganar un duelo (mejor de 3)
 const VIDA_MAX = 100;
 const RUN_FIGHTS = 6;          // torneo: 5 duelos al azar + el jefe secreto
