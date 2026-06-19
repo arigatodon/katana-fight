@@ -57,31 +57,34 @@ const CHARS = [
 // Todos los jefes sorpresa son GIGANTES: imponen tamaño, alcance y
 // rompen defensas, pero para nivelar la ventaja del gigante son LENTOS
 // (windup largo, poca agilidad). Cada uno conserva su sello propio.
+// Todos los jefes sorpresa son YOKAI gigantes (espíritus del folclore
+// japonés): imponen tamaño y rompen defensas, pero son LENTOS (windup largo,
+// poca agilidad). Cada uno conserva su sello propio.
 const SECRET_CHARS = [
-  { id: 'gallina', name: 'GALLINA COLOSAL', kanji: '鶏', desc: 'Gigante: salta altísimo pero pesa al caer', secret: true,
+  { id: 'gallina', name: 'TENGU', kanji: '天狗', desc: 'Yokai cuervo: salta altísimo y golpea desde el aire', secret: true,
     stats: { corte: 22, postura: 22, agilidad: 12, engano: 14, reflejos: 16, espiritu: 16 },
     scale: 1.24, windupMul: 1.4, dmgMul: 1.12, breakMul: 2.0, jumpMul: 1.3, head: 'gallina',
-    pal: pal('#f4f0e4', '#d4ccb8', '#e8d8b8', '#c4b494', '#e03020', '#f0c040', '#f4f0e4') },
+    pal: pal('#3a2a3a', '#281c28', '#7a1818', '#561010', '#e03020', '#c04030', '#1a1014') },
 
-  { id: 'sapo', name: 'SAPO TITÁN', kanji: '蛙', desc: 'Gigante: rebota al aterrizar y aplasta', secret: true,
+  { id: 'sapo', name: 'KAPPA', kanji: '河童', desc: 'Yokai del agua: rebota al aterrizar y aplasta', secret: true,
     stats: { corte: 24, postura: 26, agilidad: 8, engano: 10, reflejos: 12, espiritu: 20 },
     scale: 1.30, windupMul: 1.55, dmgMul: 1.18, breakMul: 2.3, bounce: true, head: 'sapo',
     pal: pal('#5a8a3a', '#44682a', '#3a5226', '#28381a', '#d0e060', '#88b050', '#2e4a1e') },
 
-  { id: 'mapache', name: 'MAPACHE COLOSO', kanji: '狸', desc: 'Gigante: roba postura con cada golpe', secret: true,
+  { id: 'mapache', name: 'TANUKI', kanji: '狸', desc: 'Yokai cambiaformas: roba postura con cada golpe', secret: true,
     stats: { corte: 22, postura: 22, agilidad: 10, engano: 22, reflejos: 14, espiritu: 18 },
     scale: 1.26, windupMul: 1.5, dmgMul: 1.12, breakMul: 2.2, steal: true, head: 'mapache',
-    pal: pal('#6a6a72', '#50505a', '#3a3a42', '#28282e', '#e8a030', '#9a9aa4', '#28282e') },
+    pal: pal('#6a5a48', '#504436', '#3a3228', '#28221a', '#e8a030', '#b09878', '#2a2018') },
 
-  { id: 'tiburon', name: 'TIBURÓN LEVIATÁN', kanji: '鮫', desc: 'Gigante: embiste deslizándose pese a su mole', secret: true,
+  { id: 'tiburon', name: 'UMIBOZU', kanji: '海坊主', desc: 'Yokai del mar: embiste deslizándose pese a su mole', secret: true,
     stats: { corte: 26, postura: 22, agilidad: 14, engano: 8, reflejos: 12, espiritu: 14 },
     scale: 1.28, windupMul: 1.45, dmgMul: 1.15, breakMul: 2.3, slide: true, head: 'tiburon',
-    pal: pal('#5a7a9a', '#446080', '#2a3a4e', '#1c2836', '#c0e8f8', '#7a9ab8', '#34495e') },
+    pal: pal('#2a3a4e', '#1c2836', '#16202c', '#0e1620', '#c0e8f8', '#3a4e60', '#10181f') },
 
-  { id: 'abuela', name: 'ABUELA MONUMENTAL', kanji: '婆', desc: 'Gigante: lentísima, pero su parada es letal', secret: true,
+  { id: 'abuela', name: 'YAMAUBA', kanji: '山姥', desc: 'Bruja yokai de la montaña: lentísima, pero su parada es letal', secret: true,
     stats: { corte: 26, postura: 28, agilidad: 5, engano: 12, reflejos: 34, espiritu: 26 },
     scale: 1.26, windupMul: 1.6, dmgMul: 1.15, breakMul: 2.2, parryMul: 1.8, head: 'abuela',
-    pal: pal('#c8a8c0', '#a4849c', '#5a4a56', '#42363e', '#e8c8d8', '#e8c8a8', '#e4e0dc') },
+    pal: pal('#9a8a78', '#76685a', '#5a4a42', '#3e3228', '#e8c8d8', '#d8c4b0', '#e4e0dc') },
 ];
 
 function allChars() { return CHARS.concat(SECRET_CHARS); }

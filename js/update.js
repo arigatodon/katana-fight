@@ -80,7 +80,8 @@ function updatePlayer(p, foe, isP1, dt) {
     if (mv !== 0) p.facing = mv;
     if (mv === 0) p.facing = foe.x > p.x ? 1 : -1;
     if (inp.jump && !p.jumpHeld) doJump(p);
-    if (inp.attack && !p.attackHeld) startAttack(p);
+    // ataque normal = corte (arriba→abajo); abajo + ataque = estocada
+    if (inp.attack && !p.attackHeld) { p.attackThrust = !!inp.down; startAttack(p); }
     else if (guardHold) startGuard(p);
     else if (feintTap) startFeint(p);
   } else if (p.state === PSTATE.RECOVER || p.state === PSTATE.STAGGER || p.state === PSTATE.HITSTUN) {

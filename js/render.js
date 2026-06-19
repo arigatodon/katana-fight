@@ -4,7 +4,188 @@
 //  RENDER — escenarios, samuráis, fantasma, HUD y combate
 // ============================================================
 
+// ---------------- Arte ukiyo-e (Gemini) ----------------
+//  Fondos e imágenes de personaje generados con tools/generate_art.py.
+//  Si la imagen existe y cargó, se usa; si no, cae al dibujo procedural.
+//  Los personajes se animan como "recorte" (una pieza) movido por el
+//  esqueleto del combate: posición, volteo, inclinación y caída.
+const PUPPET_H = 110;            // alto en pantalla del luchador a escala 1
+                                 // (≈ largo visual de la katana ≈ reach del
+                                 //  combate, para que las colisiones calcen)
+const charImg = {};              // id -> { img, ready }
+const bgImg = {};                // id -> { img, ready }
+
+function loadArt(map, dir, ids) {
+  for (const id of ids) {
+    const rec = { img: new Image(), ready: false };
+    rec.img.onload = () => { rec.ready = true; };
+    rec.img.src = dir + id + '.png';
+    map[id] = rec;
+  }
+}
+// data.js ya está cargado: intentamos todas las imágenes; las que falten
+// simplemente nunca quedan "ready" y el juego usa el dibujo procedural.
+loadArt(charImg, 'assets/chars/', allChars().map(c => c.id));
+loadArt(bgImg, 'assets/bg/', STAGES.map(s => s.id));
+
+// ---------------- Recorte articulado (origami / South Park) ----------------
+//  Piezas separadas (torso+cabeza, parte baja, brazos+katana) generadas con
+//  tools/generate_art.py parts. El esqueleto del combate las articula: el
+//  torso se inclina, los brazos+katana giran en el hombro (windup/ataque/
+//  guardia), y todo rota al caer. Si faltan piezas → cae a una pieza / procedural.
+const PART_NAMES = ['torso', 'pierna', 'brazos'];
+const partsImg = {};             // id -> { torso, pierna, brazos, ready }
+
+function loadParts(ids) {
+  for (const id of ids) {
+    const rec = { ready: false, loaded: 0 };
+    for (const part of PART_NAMES) {
+      const im = new Image();
+      im.onload = () => { if (++rec.loaded === PART_NAMES.length) rec.ready = true; };
+      im.src = `assets/parts/${id}/${part}.png`;
+      rec[part] = im;
+    }
+    partsImg[id] = rec;
+  }
+}
+loadParts(allChars().map(c => c.id));
+
+// proporciones del muñeco (fracciones del alto total) — ajustables
+const RIG = {
+  hipFrac: 0.46,        // altura de la cadera (cintura)
+  shoulderFrac: 0.72,   // altura del hombro
+  shoulderXFrac: 0.04,  // hombro algo adelantado
+  torsoHFrac: 0.66,     // alto de la pieza de torso
+  armsWFrac: 0.92,      // ancho de la pieza de brazos (largo katana incluido)
+  lowerHFrac: 0.56,     // alto de la parte baja completa (hakama, cadera→pies)
+  legHFrac: 0.54,       // alto de una pierna suelta (cadera→pie)
+  legSplitFrac: 0.05,   // separación delante/atrás de las dos piernas
+  legSwing: 0.26,       // zancada de las piernas sueltas al caminar (rad)
+  lowerSway: 0.06,      // mecida de la parte baja completa al caminar (rad)
+  walkBob: 2.5,         // sube/baja al caminar (px)
+  // anclajes (pivote) dentro de cada imagen, en fracción de su bbox
+  torsoAnchor: [0.5, 1.0],   // cintura: abajo-centro
+  lowerAnchor: [0.5, 0.04],  // cadera: arriba-centro
+  legAnchor:   [0.5, 0.06],  // cadera: arriba-centro
+  armsAnchor:  [0.10, 0.34], // hombro: extremo izquierdo
+};
+
+// personajes cuya pieza de parte baja ya trae las DOS piernas (hakama
+// completo): se dibuja una sola vez. El resto trae UNA pierna → se duplica.
+const LEG_FULL = new Set(['maestro', 'gigante', 'sapo', 'abuela']);
+
+function drawPart(img, anchor, cx, cy, targetH, targetW, rot) {
+  if (!img || !img.width) return;
+  const s = targetH != null ? targetH / img.height : targetW / img.width;
+  const w = img.width * s, h = img.height * s;
+  ctx.save();
+  ctx.translate(cx, cy);
+  if (rot) ctx.rotate(rot);
+  ctx.drawImage(img, -anchor[0] * w, -anchor[1] * h, w, h);
+  ctx.restore();
+}
+
+function drawOrigami(p, ghostAlpha, rec) {
+  const f = p.facing;
+  const dead = p.state === PSTATE.DEAD;
+  const bob = p.onGround && !dead ? Math.sin(p.bob) * 1.5 : 0;
+  const sc = p.scale || 1;
+  const H = PUPPET_H * sc;
+  const hipY = -RIG.hipFrac * H, shY = -RIG.shoulderFrac * H;
+
+  // estado del combate → inclinación del torso, arremetida y giro de la katana.
+  // Las poses se autoran en espacio LOCAL (el personaje "mira a la derecha");
+  // el ctx.scale(f,1) de abajo voltea el muñeco entero, así que el corte se ve
+  // de arriba→abajo igual a la izquierda que a la derecha (sin multiplicar f).
+  // Ataque normal = corte vertical · abajo+ataque = estocada (p.attackThrust).
+  const thrust = p.attackThrust;
+  let lean = 0, dx = 0, armRot = 0;
+  switch (p.state) {
+    case PSTATE.WINDUP:  lean = thrust ? -0.06 : -0.12; dx = thrust ? -4 : 0; armRot = thrust ? -0.15 : -1.05; break;
+    case PSTATE.FEINT:   lean = -0.08; armRot = -0.70; break;
+    case PSTATE.ATTACK:  lean = thrust ? 0.10 : 0.20; dx = thrust ? 24 : 14; armRot = thrust ? 0.02 : 0.55; break;
+    case PSTATE.RECOVER: lean = thrust ? 0.06 : 0.10; dx = thrust ? 10 : 6; armRot = thrust ? 0.00 : 0.30; break;
+    case PSTATE.GUARD:   lean = -0.10; armRot = -0.55; break;
+    case PSTATE.STAGGER:
+    case PSTATE.HITSTUN: lean = -0.24; dx = -6; armRot = -0.20; break;
+    case PSTATE.EXPOSED: lean = 0.14 + Math.sin(p.bob * 6) * 0.04; armRot = 0.10; break;
+  }
+
+  ctx.save();
+  if (ghostAlpha !== undefined) ctx.globalAlpha = ghostAlpha;
+  ctx.translate(p.x + f * dx, p.y);
+  if (dead) {
+    const fall = Math.min(1, p.deathT * 2.8);
+    ctx.rotate(-f * fall * 1.45);
+    ctx.translate(0, fall * 8);
+  }
+  ctx.scale(f, 1);                       // mira a la derecha por defecto
+
+  const walking = !dead && p.onGround && Math.abs(p.vx) > 30;
+  const phase = Math.sin(p.bob * 1.6);
+  const wbob = walking ? Math.abs(phase) * RIG.walkBob : 0;
+
+  // 1) parte baja: hakama completo (1 pieza) para maestro/gigante; el resto
+  //    trae UNA pierna que se duplica (delante/atrás) con zancada al caminar
+  if (LEG_FULL.has(p.char.id)) {
+    const sway = walking ? phase * RIG.lowerSway : 0;
+    drawPart(rec.pierna, RIG.lowerAnchor, 0, hipY + wbob, RIG.lowerHFrac * H, null, sway);
+  } else {
+    const sw = walking ? phase * RIG.legSwing : 0.05;
+    const legH = RIG.legHFrac * H, split = RIG.legSplitFrac * H;
+    drawPart(rec.pierna, RIG.legAnchor, -split, hipY, legH, null, -sw);   // trasera
+    drawPart(rec.pierna, RIG.legAnchor,  split, hipY, legH, null,  sw);   // delantera
+  }
+  // 2) torso + cabeza: pivota en la cintura, se inclina (rotación en local)
+  drawPart(rec.torso, RIG.torsoAnchor, 0, hipY + bob + wbob, RIG.torsoHFrac * H, null, lean);
+  // 3) brazos + katana: pivotan en el hombro y giran con la pose (rotación en local)
+  drawPart(rec.brazos, RIG.armsAnchor, RIG.shoulderXFrac * H, shY + bob + wbob, null, RIG.armsWFrac * H, armRot);
+
+  ctx.restore();
+}
+
+// recorte de una pieza: la figura entera, movida por el estado del combate
+function drawPuppet(p, ghostAlpha, art) {
+  const f = p.facing;
+  const dead = p.state === PSTATE.DEAD;
+  const bob = p.onGround && !dead ? Math.sin(p.bob) * 1.5 : 0;
+  const sc = p.scale || 1;
+  const img = art.img;
+  const h = PUPPET_H * sc;
+  const w = h * (img.width / img.height);
+
+  // inclinación / arremetida según el estado (legibilidad de la pose)
+  let lean = 0, dx = 0, dy = 0;
+  switch (p.state) {
+    case PSTATE.WINDUP:  lean = -0.20; dy = -3; break;
+    case PSTATE.FEINT:   lean = -0.12; break;
+    case PSTATE.ATTACK:  lean = 0.32; dx = 20; break;
+    case PSTATE.RECOVER: lean = 0.16; dx = 8; break;
+    case PSTATE.GUARD:   lean = -0.14; break;
+    case PSTATE.STAGGER:
+    case PSTATE.HITSTUN: lean = -0.36; dx = -8; break;
+    case PSTATE.EXPOSED: lean = 0.22 + Math.sin(p.bob * 6) * 0.05; break;
+  }
+
+  ctx.save();
+  if (ghostAlpha !== undefined) ctx.globalAlpha = ghostAlpha;
+  ctx.translate(p.x + f * dx, p.y + bob + dy);
+  if (dead) {
+    const fall = Math.min(1, p.deathT * 2.8);
+    ctx.rotate(-f * fall * 1.45);
+    ctx.translate(0, fall * 8);
+  } else {
+    ctx.rotate(f * lean);
+  }
+  ctx.scale(f, 1);                       // la figura mira a la derecha por defecto
+  ctx.drawImage(img, -w / 2, -h, w, h);  // pies en el origen, centrado en x
+  ctx.restore();
+}
+
 function drawBackground() {
+  // fondo ukiyo-e generado, si está disponible para este escenario
+  const bg = bgImg[stage.id];
+  if (bg && bg.ready) { ctx.drawImage(bg.img, 0, 0, W, H); return; }
   const sky = ctx.createLinearGradient(0, 0, 0, H);
   const skies = {
     dojo:    ['#0d0d1f', '#1c1430', '#3a1c2e', '#1a0e16'],
@@ -453,6 +634,9 @@ function drawBalneario() {
 // bambú en primer plano (obstruye la vista)
 function drawForeground() {
   if (stage.id !== 'bambu') return;
+  // si escena.js tiene el bambú de frente cargado, lo dibuja él (arte);
+  // este bambú procedural queda solo como respaldo
+  if (typeof escImg === 'function' && escImg('bambu_frente')) return;
   ctx.save();
   for (const [bx, w, a] of [[150, 26, 0.92], [380, 32, 0.95], [620, 24, 0.9], [830, 30, 0.94]]) {
     const sway = Math.sin(gTime * 0.8 + bx) * 6;
@@ -597,19 +781,37 @@ function drawSamurai(p, ghostAlpha) {
   const dead = p.state === PSTATE.DEAD;
   const bob = p.onGround && !dead ? Math.sin(p.bob) * 1.5 : 0;
   const sc = p.scale || 1;
+  const rig = p.char && partsImg[p.char.id];
+  const art = p.char && charImg[p.char.id];
+  const hasArt = (rig && rig.ready) || (art && art.ready);
 
   if (ghostAlpha === undefined) {
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
     ctx.beginPath();
     ctx.ellipse(p.x, p.y + 3, (dead ? 36 : 23) * sc, 6, 0, 0, Math.PI * 2);
     ctx.fill();
-    if (dead && p.onGround) {
+    if (dead && p.onGround && !hasArt) {
       ctx.save();
       ctx.translate(p.x + f * 30, GROUND - 4);
       ctx.scale(f, 1);
       drawKatana(0, 0, -0.06, false);
       ctx.restore();
     }
+  }
+
+  // arte ukiyo-e: recorte articulado (origami) si están las piezas; si no,
+  // figura de una pieza; si tampoco, el dibujo procedural de más abajo
+  if (hasArt) {
+    if (rig && rig.ready) drawOrigami(p, ghostAlpha, rig);
+    else drawPuppet(p, ghostAlpha, art);
+    for (const ai of p.afterimages) {
+      const fake = Object.assign({}, p, {
+        x: ai.x, y: ai.y, facing: ai.facing, state: PSTATE.IDLE,
+        bob: ai.bob, afterimages: [],
+      });
+      drawSamurai(fake, 0.35 * (ai.life / ai.maxLife));
+    }
+    return;
   }
 
   ctx.save();
@@ -743,7 +945,12 @@ function drawSamurai(p, ghostAlpha) {
 
 const PALG = pal('#aab4c8', '#7a86a0', '#3a4258', '#282e40', '#9ad0e8', '#b8c4d8', '#dce4f0');
 
+// fantasma del ganador desactivado por ahora: usaba el dibujo procedural
+// antiguo y desentonaba con el arte ukiyo-e. Reactivar quitando este return.
+const GHOST_ON = false;
+
 function drawGhost() {
+  if (!GHOST_ON) return;
   if (!ghostPlay || !ghostPlay.frames.length) return;
   const fr = ghostPlay.frames[Math.min(ghostPlay.i, ghostPlay.frames.length - 1)];
   if (!fr || fr.x === undefined) return;
@@ -910,6 +1117,7 @@ function drawDestinoOverlay() {
 // ---------------- Escena de combate completa ----------------
 function drawFight(t) {
   drawBackground();
+  drawCapas('cielo');        // capa de adorno detrás de los luchadores (escena.js)
   drawGhost();
 
   for (const s of slashTrails) {
@@ -946,6 +1154,7 @@ function drawFight(t) {
   ctx.globalAlpha = 1;
 
   drawForeground();
+  drawCapas('frente');       // capa de adorno delante de los luchadores (escena.js)
   drawDestinoOverlay();
 
   // textos flotantes
