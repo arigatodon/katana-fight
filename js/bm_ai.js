@@ -14,41 +14,42 @@
 // ============================================================
 
 function bmUpdateAI(e, dt) {
-  const pl = bmPlayer;
-  if (!pl || pl.state === PSTATE.DEAD || bmRespawnT > 0) {
-    if (e.state === PSTATE.IDLE) e.vx = 0;
-    return;
-  }
   e.atkCd -= dt;
   if (e.spCd > 0) e.spCd -= dt;
 
-  // embestida en curso (umibōzu): mantiene la velocidad pese al rozamiento
+  // embestida en curso (umibōzu): mantiene la velocidad pese al rozamiento.
+  // Corre aunque no haya objetivo, para no congelar al jefe a medio ataque.
   if (e.chargeT > 0) {
     e.vx = e.facing * 720;
     e.chargeT -= dt;
     if (e.chargeT <= 0) { e.state = PSTATE.RECOVER; e.stateTimer = 0.5; e.vx = 0; }
     return;
   }
+
+  // objetivo: el jugador vivo más cercano (en co-op puede haber dos)
+  const pl = bmNearestLivingPlayer(e);
+  if (!pl) { if (e.state === PSTATE.IDLE) e.vx = 0; return; }
+
   if (e.state !== PSTATE.IDLE) return;   // ocupado en tierra (windup/ataque/recover)
 
   e.facing = pl.x >= e.x ? 1 : -1;
   const dist = Math.abs(e.x - pl.x);
 
   // jefes: ataque firma cuando se enfría y el jugador está a media distancia
-  if (e.isBoss && e.spCd <= 0 && dist < 380 && pl.onGround) { bmBossSpecial(e); return; }
+  if (e.isBoss && e.spCd <= 0 && dist < 380 && pl.onGround) { bmBossSpecial(e, pl); return; }
 
   const range = e.reach + (e.isBoss ? 8 : 4);
   switch (e.char.id) {
-    case 'cazadora': return bmAICazadora(e, dist, range);
-    case 'espectro': return bmAIEspectro(e, dist, range);
-    case 'monja':    return bmAIMonja(e, dist, range);
-    case 'bandido':  return bmAIRusher(e, dist, range);
-    default:         return bmAIBasic(e, dist, range);
+    case 'cazadora': return bmAICazadora(e, pl, dist, range);
+    case 'espectro': return bmAIEspectro(e, pl, dist, range);
+    case 'monja':    return bmAIMonja(e, pl, dist, range);
+    case 'bandido':  return bmAIRusher(e, pl, dist, range);
+    default:         return bmAIBasic(e, pl, dist, range);
   }
 }
 
 // acercarse y golpear (gigante, jefes en cuerpo a cuerpo, genérico)
-function bmAIBasic(e, dist, range) {
+function bmAIBasic(e, pl, dist, range) {
   if (dist <= range && e.atkCd <= 0) {
     bmStartAttack(e, false);
     if (e.unblockable) e.attackThrust = false;
@@ -56,22 +57,22 @@ function bmAIBasic(e, dist, range) {
     return;
   }
   const sep = bmSeparation(e);
-  if (dist > range * 0.85) e.vx = (bmPlayer.x > e.x ? 1 : -1) * e.speed + sep;
+  if (dist > range * 0.85) e.vx = (pl.x > e.x ? 1 : -1) * e.speed + sep;
   else e.vx = sep * 0.6;
 }
 
 // bandido: rushea rápido, golpes seguidos
-function bmAIRusher(e, dist, range) {
+function bmAIRusher(e, pl, dist, range) {
   if (dist <= range * 1.05 && e.atkCd <= 0) {
     bmStartAttack(e, false);
     e.atkCd = 0.65 + Math.random() * 0.6;
     return;
   }
-  e.vx = (bmPlayer.x > e.x ? 1 : -1) * e.speed * 1.5 + bmSeparation(e);
+  e.vx = (pl.x > e.x ? 1 : -1) * e.speed * 1.5 + bmSeparation(e);
 }
 
 // cazadora: brinca acercándose y ataca al caer
-function bmAICazadora(e, dist, range) {
+function bmAICazadora(e, pl, dist, range) {
   if (dist <= range && e.atkCd <= 0) {
     bmStartAttack(e, false);
     e.atkCd = 1.0 + Math.random() * 0.8;
@@ -79,16 +80,16 @@ function bmAICazadora(e, dist, range) {
   }
   if (e.onGround) {
     if (dist > range && Math.random() < 0.045) {       // salto hacia el jugador
-      e.vy = -560; e.vx = (bmPlayer.x > e.x ? 1 : -1) * e.speed * 1.7; e.onGround = false;
+      e.vy = -560; e.vx = (pl.x > e.x ? 1 : -1) * e.speed * 1.7; e.onGround = false;
       sfxJump && sfxJump();
     } else {
-      e.vx = (bmPlayer.x > e.x ? 1 : -1) * e.speed + bmSeparation(e);
+      e.vx = (pl.x > e.x ? 1 : -1) * e.speed + bmSeparation(e);
     }
   }
 }
 
 // espectro: parpadea (dash corto) dejando una imagen falsa
-function bmAIEspectro(e, dist, range) {
+function bmAIEspectro(e, pl, dist, range) {
   if (dist <= range && e.atkCd <= 0) {
     bmStartAttack(e, false);
     e.atkCd = 1.1 + Math.random() * 0.8;
@@ -96,13 +97,13 @@ function bmAIEspectro(e, dist, range) {
   }
   if (dist > range && e.atkCd > 0.35 && Math.random() < 0.03) {
     e.afterimages.push({ x: e.x, y: e.y, facing: e.facing, life: 0.5, maxLife: 0.5, bob: e.bob, aMax: 0.5 });
-    e.x += (bmPlayer.x > e.x ? 1 : -1) * Math.min(Math.max(0, dist - range * 0.8), 130);
+    e.x += (pl.x > e.x ? 1 : -1) * Math.min(Math.max(0, dist - range * 0.8), 130);
   }
-  e.vx = (bmPlayer.x > e.x ? 1 : -1) * e.speed * 0.8 + bmSeparation(e);
+  e.vx = (pl.x > e.x ? 1 : -1) * e.speed * 0.8 + bmSeparation(e);
 }
 
 // monja: finta (amaga y cancela) para baitear tu parry/dash, luego golpea
-function bmAIMonja(e, dist, range) {
+function bmAIMonja(e, pl, dist, range) {
   if (dist <= range && e.atkCd <= 0) {
     if (!e.feintNext && Math.random() < 0.5) {
       e.state = PSTATE.WINDUP; e.stateTimer = 0.24; e.feinting = true; e.feintNext = true;
@@ -113,12 +114,11 @@ function bmAIMonja(e, dist, range) {
     }
     return;
   }
-  e.vx = (bmPlayer.x > e.x ? 1 : -1) * e.speed + bmSeparation(e);
+  e.vx = (pl.x > e.x ? 1 : -1) * e.speed + bmSeparation(e);
 }
 
 // ---- ataque FIRMA de cada jefe yokai ----
-function bmBossSpecial(e) {
-  const pl = bmPlayer;
+function bmBossSpecial(e, pl) {
   e.spCd = 3 + Math.random() * 2.5;
   const dir = pl.x > e.x ? 1 : -1;
   e.facing = dir;

@@ -11,12 +11,13 @@ function bmTick(dt) {
   // temporizadores de pantallas de transición
   if (bmEndT > 0) bmEndT -= dt;
 
-  if (bmScene === 'title' || bmScene === 'choose' || bmScene === 'gameover' || bmScene === 'win' || bmScene === 'ranking') {
+  if (bmScene === 'title' || bmScene === 'choose' || bmScene === 'gameover' || bmScene === 'win' || bmScene === 'ranking' || bmScene === 'online') {
     bmTime += dt;
     if (bmFlash > 0) bmFlash -= dt;
+    if (typeof bmNetErrorT !== 'undefined' && bmNetErrorT > 0) bmNetErrorT -= dt;
     return;
   }
-  // 'play'
+  // 'play' (en co-op el invitado interpola dentro de bmUpdate)
   bmUpdate(dt);
 }
 

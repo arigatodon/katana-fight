@@ -40,21 +40,33 @@ addEventListener('keydown', e => {
   // ---- menús ----
   if (bmScene === 'title') {
     if (e.code === 'KeyR') { bmLoadRank(); bmScene = 'ranking'; sfxConfirm && sfxConfirm(); return; }
-    if (BM_BIND.attack.includes(e.code) || e.code === 'Space') { bmScene = 'choose'; sfxConfirm && sfxConfirm(); }
+    if (e.code === 'KeyO') { bmNetStart(); return; }   // co-op en línea
+    if (BM_BIND.attack.includes(e.code) || e.code === 'Space') { bmCoop = false; bmScene = 'choose'; sfxConfirm && sfxConfirm(); }
     return;
   }
   if (bmScene === 'ranking') {
     bmScene = 'title'; sfxConfirm && sfxConfirm();
     return;
   }
+  if (bmScene === 'online') {                          // buscando/esperando compañero
+    if (e.code === 'Escape' || BM_BIND.attack.includes(e.code)) { bmNetLeave(); bmScene = 'title'; sfxConfirm && sfxConfirm(); }
+    return;
+  }
   if (bmScene === 'choose') {
     if (bmDownCode(e.code, 'left'))  { bmChooseSel = (bmChooseSel + BM_PLAYABLE.length - 1) % BM_PLAYABLE.length; sfxSelect && sfxSelect(); }
     if (bmDownCode(e.code, 'right')) { bmChooseSel = (bmChooseSel + 1) % BM_PLAYABLE.length; sfxSelect && sfxSelect(); }
-    if (BM_BIND.attack.includes(e.code)) { sfxConfirm && sfxConfirm(); bmStartGame(BM_PLAYABLE[bmChooseSel]); }
+    if (BM_BIND.attack.includes(e.code)) {
+      sfxConfirm && sfxConfirm();
+      if (bmCoop) bmNetChoose(bmChar(BM_PLAYABLE[bmChooseSel]));   // co-op: avisa al compañero
+      else bmStartGame(BM_PLAYABLE[bmChooseSel]);
+    }
     return;
   }
   if (bmScene === 'gameover' || bmScene === 'win') {
-    if (bmEndT <= 0 && (BM_BIND.attack.includes(e.code) || e.code === 'Space')) { bmScene = 'title'; sfxConfirm && sfxConfirm(); }
+    if (bmEndT <= 0 && (BM_BIND.attack.includes(e.code) || e.code === 'Space')) {
+      if (bmCoop) bmNetLeave();
+      bmScene = 'title'; sfxConfirm && sfxConfirm();
+    }
     return;
   }
 
@@ -101,6 +113,10 @@ const BM_TBTN = [
 ];
 const bmTouch = { left: false, right: false, jump: false, attack: false, dash: false, parry: false };
 
+// botón táctil de "CO-OP en línea" en el título (lo dibuja bm_render)
+const BM_COOP_BTN = { x: W / 2 - 130, y: H * 0.66, w: 260, h: 46 };
+function bmInRect(p, r) { return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h; }
+
 function bmCanvasPos(t) {
   const r = cvs.getBoundingClientRect();
   return { x: (t.clientX - r.left) * (W / r.width), y: (t.clientY - r.top) * (H / r.height) };
@@ -143,15 +159,21 @@ function bmMenuTap(p) {
   if (typeof initAudio === 'function') initAudio();
   if (bmScene === 'title') {
     if (p.y > H * 0.95) { bmLoadRank(); bmScene = 'ranking'; sfxConfirm && sfxConfirm(); return; }  // franja inferior: ranking
-    bmScene = 'choose'; sfxConfirm && sfxConfirm(); return;
+    if (bmInRect(p, BM_COOP_BTN)) { bmNetStart(); return; }   // botón de co-op en línea
+    bmCoop = false; bmScene = 'choose'; sfxConfirm && sfxConfirm(); return;
   }
+  if (bmScene === 'online') { bmNetLeave(); bmScene = 'title'; sfxConfirm && sfxConfirm(); return; }
   if (bmScene === 'choose') {
     const zona = p.x < W / 3 ? 0 : p.x < 2 * W / 3 ? 1 : 2;   // toca un guerrero = elígelo
-    bmChooseSel = zona; sfxConfirm && sfxConfirm(); bmStartGame(BM_PLAYABLE[zona]); return;
+    bmChooseSel = zona; sfxConfirm && sfxConfirm();
+    if (bmCoop) bmNetChoose(bmChar(BM_PLAYABLE[zona]));
+    else bmStartGame(BM_PLAYABLE[zona]);
+    return;
   }
   if (bmScene === 'ranking') { bmScene = 'title'; sfxConfirm && sfxConfirm(); return; }
   if ((bmScene === 'gameover' || bmScene === 'win') && bmEndT <= 0) {
     // tocar fuera del input = volver al título (el input maneja su propio toque)
+    if (bmCoop) bmNetLeave();
     bmScene = 'title'; sfxConfirm && sfxConfirm();
   }
 }
@@ -175,7 +197,8 @@ function bmConfirmName() {
 // muestra/oculta el input de nombre según la escena (llamado cada frame en bmDraw)
 function bmSyncNameInput() {
   if (!bmNameEl) return;
-  const show = (bmScene === 'gameover' || bmScene === 'win') && bmEndT <= 0;
+  // en co-op no se pide nombre: el puntaje es compartido y no va al ranking solo
+  const show = !bmCoop && (bmScene === 'gameover' || bmScene === 'win') && bmEndT <= 0;
   if (show && bmNameEl.style.display !== 'block') {
     bmNameEl.style.display = 'block';
     if (!bmNameEl.value && typeof save !== 'undefined') bmNameEl.value = save.onlineName || '';

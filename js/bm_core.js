@@ -16,8 +16,21 @@
 // ============================================================
 
 // ---- estado del beat 'em up ----
-let bmScene = 'title';      // title | choose | play | stageclear | win | gameover
+let bmScene = 'title';      // title | choose | online | play | stageclear | win | gameover
 let bmPlayer = null;
+// ---- co-op en línea (autoritativo por host) ----
+// El lado 0 (anfitrión) simula la partida entera y transmite snapshots; el lado
+// 1 (invitado) solo envía su input y renderiza lo que recibe. Así NO hace falta
+// determinismo (el beat usa Math.random por todas partes). Todo lo del co-op va
+// detrás de `bmCoop`; el modo 1 jugador queda intacto. Ver bm_online.js.
+let bmCoop = false;         // co-op en línea activo
+let bmHost = false;         // soy el anfitrión (simulo) — en solo también es true
+let bmMate = null;          // el compañero de co-op (segundo luchador)
+let bmNetSide = 0;          // mi lado (0 = host, 1 = invitado)
+let bmLivesMax = 3;         // tope de vidas a dibujar (3 solo · compartidas en co-op)
+const BM_COOP_LIVES = 5;    // bolsa de vidas COMPARTIDA en co-op
+let bmNid = 0;              // contador de id de red para los enemigos (host)
+let bmEnemiesById = {};     // nid → enemigo (reconstrucción en el invitado)
 let bmEnemies = [];
 let bmStageIdx = 0;
 let bmStage = null;
@@ -30,7 +43,6 @@ let bmScore = 0;
 let bmKills = 0;
 let bmTime = 0;
 let bmBanner = '', bmBannerSub = '', bmBannerT = 0;
-let bmRespawnT = 0;
 let bmGameOverPending = false;
 let bmChooseSel = 0;
 let bmFlash = 0;            // destello blanco (muerte / corte)
@@ -56,6 +68,32 @@ const BM_ENEMIES = ['bandido', 'monja', 'gigante', 'cazadora', 'espectro'];
 
 function bmChar(id) {
   return allChars().find(c => c.id === id) || CHARS[0];
+}
+
+// jugadores activos: en solo solo el local; en co-op el local y el compañero
+function bmAllPlayers() {
+  return bmCoop ? [bmPlayer, bmMate].filter(Boolean) : [bmPlayer].filter(Boolean);
+}
+
+// el jugador vivo (no muerto ni reapareciendo) más cercano a `e`, o null
+function bmNearestLivingPlayer(e) {
+  let best = null, bd = Infinity;
+  for (const p of bmAllPlayers()) {
+    if (!p || p.state === PSTATE.DEAD || p.respawnT > 0) continue;
+    const d = Math.abs(p.x - e.x);
+    if (d < bd) { bd = d; best = p; }
+  }
+  return best;
+}
+
+// el jugador vivo más a la derecha (marca el avance/oleadas en co-op)
+function bmLeadPlayer() {
+  let lead = null;
+  for (const p of bmAllPlayers()) {
+    if (!p || p.state === PSTATE.DEAD) continue;
+    if (!lead || p.x > lead.x) lead = p;
+  }
+  return lead || bmPlayer;
 }
 
 // ---- etapas: banda larga + oleadas + jefe yokai ----
@@ -106,6 +144,7 @@ const BM_WORLD_FALLBACK = 2520;   // ancho hasta que carga la imagen del fondo
 function bmMakeFighter(id, x, facing, isBoss) {
   const ch = bmChar(id);
   const p = makePlayer(x, facing, ch, true, ch.name);
+  p.nid = bmNid++;            // id de red para sincronizar con el invitado
   p.isBoss = !!isBoss;
   p.hp = isBoss ? bmBossHp() : 1;
   p.maxHp = p.hp;
@@ -125,8 +164,8 @@ function bmMakeFighter(id, x, facing, isBoss) {
 // El jefe es más resistente cuanto más avanzada la etapa.
 function bmBossHp() { return 7 + bmStageIdx * 2; }
 
-function bmPlayablePlayer(charId) {
-  const p = makePlayer(140, 1, bmChar(charId), false, 'JUGADOR');
+function bmPlayablePlayer(charId, side, x) {
+  const p = makePlayer(x || 140, 1, bmChar(charId), false, 'JUGADOR');
   p.isBoss = false;
   p.hp = 1;
   p.invT = 1.2;             // breve gracia al empezar
@@ -137,13 +176,20 @@ function bmPlayablePlayer(charId) {
   p.parryT = 0;             // ventana de parada/contraataque
   p.parryCd = 0;
   p.parriedKill = false;    // marca para el contragolpe del parry
+  p.respawnT = 0;           // temporizador de reaparición (por jugador)
+  p.side = side || 0;       // 0 = host · 1 = invitado (co-op)
+  p._dir = 0;               // dirección sostenida del compañero (vía red, en el host)
   p.speed *= 0.92;
   return p;
 }
 
 // ---- arranque / carga de etapa ----
 function bmStartGame(charId) {
+  bmCoop = false;
+  bmHost = true;            // en solo, el local simula como si fuera anfitrión
+  bmMate = null;
   bmLives = BM_LIVES;
+  bmLivesMax = BM_LIVES;
   bmScore = 0;
   bmKills = 0;
   bmStageIdx = 0;
@@ -153,11 +199,35 @@ function bmStartGame(charId) {
   bmScene = 'play';
 }
 let bmPlayerCharId = 'ronin';
+let bmMateCharId = 'maestro';
+
+// arranque del co-op en línea (lo llama bm_online cuando ambos eligen guerrero)
+function bmStartCoop(myChar, mateChar, side) {
+  bmCoop = true;
+  bmHost = (side === 0);
+  bmNetSide = side;
+  bmMate = null;
+  bmLives = BM_COOP_LIVES;
+  bmLivesMax = BM_COOP_LIVES;
+  bmScore = 0;
+  bmKills = 0;
+  bmStageIdx = 0;
+  bmGameOverPending = false;
+  bmComboBest = 0;
+  bmPlayerCharId = myChar;
+  bmMateCharId = mateChar;
+  bmLoadStage(0);
+  bmScene = 'play';
+}
 
 function bmLoadStage(i) {
   bmStageIdx = i;
   bmStage = BM_STAGES[i];
-  bmPlayer = bmPlayablePlayer(bmPlayerCharId);
+  bmNid = 0;
+  bmEnemiesById = {};
+  // el jugador LOCAL conserva su lado; el compañero entra al lado contrario
+  bmPlayer = bmPlayablePlayer(bmPlayerCharId, bmCoop ? bmNetSide : 0, 130);
+  bmMate = bmCoop ? bmPlayablePlayer(bmMateCharId, 1 - bmNetSide, 175) : null;
   bmEnemies = [];
   bmCamX = 0;
   bmCamMax = bmWorldW() - W;

@@ -31,13 +31,24 @@ function bmStartAttack(p, thrust) {
   return true;
 }
 
-function bmPlayerAttack() {
-  if (bmScene !== 'play' || !bmPlayer) return;
-  // golpe hacia abajo en el aire = estocada descendente (visual)
-  if (bmStartAttack(bmPlayer, !bmPlayer.onGround && bmDown('down'))) {
-    bmPlayer.slideT = 0;   // cancelar el deslizamiento al cortar (slide → ataque)
+// ---- acciones del jugador ----
+// En co-op las acciones son las mismas para ambos luchadores: bmDoX(p) ejecuta
+// la lógica sobre el jugador `p`. Los despachadores bmPlayerX() las dirigen: en
+// el INVITADO se envían al host (que simula), en el resto se aplican al jugador
+// local. El host recibe las del compañero y llama bmDoX(bmMate) (ver bm_online.js).
+function bmDoAttack(p) {
+  if (bmScene !== 'play' || !p) return;
+  // golpe hacia abajo en el aire = estocada descendente (solo lo lee el local)
+  const thrust = !p.onGround && p === bmPlayer && bmDown('down');
+  if (bmStartAttack(p, thrust)) {
+    p.slideT = 0;   // cancelar el deslizamiento al cortar (slide → ataque)
     sfxSlash && sfxSlash();
   }
+}
+
+function bmPlayerAttack() {
+  if (bmCoop && !bmHost) { bmNetSendAction(0); return; }
+  bmDoAttack(bmPlayer);
 }
 
 // ---- deslizamiento rápido (dash) ----
@@ -46,10 +57,9 @@ const BM_SLIDE_DUR = 0.26;    // duración (s)
 const BM_SLIDE_CD = 0.55;     // enfriamiento (s)
 const BM_SLIDE_IFR = 0.20;    // invulnerabilidad inicial (esquiva)
 
-function bmPlayerSlide(dir) {
-  if (bmScene !== 'play' || !bmPlayer) return;
-  const p = bmPlayer;
-  if (p.state !== PSTATE.IDLE || !p.onGround || p.slideT > 0 || p.slideCd > 0 || bmRespawnT > 0) return;
+function bmDoSlide(p, dir) {
+  if (bmScene !== 'play' || !p) return;
+  if (p.state !== PSTATE.IDLE || !p.onGround || p.slideT > 0 || p.slideCd > 0 || p.respawnT > 0) return;
   if (dir) p.facing = dir < 0 ? -1 : 1;
   p.slideT = BM_SLIDE_DUR;
   p.slideCd = BM_SLIDE_CD;
@@ -57,6 +67,11 @@ function bmPlayerSlide(dir) {
   p.vx = p.facing * BM_SLIDE_SPEED;
   sfxJump && sfxJump();
   bmSlideDust(p);
+}
+
+function bmPlayerSlide(dir) {
+  if (bmCoop && !bmHost) { bmNetSendAction(2); return; }
+  bmDoSlide(bmPlayer, dir);
 }
 
 // chorro de sangre del jefe abatido: brota sin parar del cuerpo, sube y cae;
@@ -103,9 +118,8 @@ function bmSlideDust(p) {
   }
 }
 
-function bmPlayerJump() {
-  if (bmScene !== 'play' || !bmPlayer) return;
-  const p = bmPlayer;
+function bmDoJump(p) {
+  if (bmScene !== 'play' || !p) return;
   if (p.onGround && (p.state === PSTATE.IDLE)) {
     p.vy = p.jumpVel * 0.82;
     p.onGround = false;
@@ -113,14 +127,17 @@ function bmPlayerJump() {
   }
 }
 
+function bmPlayerJump() {
+  if (bmCoop && !bmHost) { bmNetSendAction(1); return; }
+  bmDoJump(bmPlayer);
+}
+
 // ---- resolución de golpes (llamado cada tic) ----
 function bmResolveHits() {
-  const pl = bmPlayer;
-  if (!pl) return;
-
-  // jugador golpea enemigos: un golpe alcanza a UN solo enemigo (el más cercano
-  // en rango), no atraviesa a varios.
-  if (pl.state === PSTATE.ATTACK && !pl.hitDone) {
+  // cada jugador golpea enemigos: un golpe alcanza a UN solo enemigo (el más
+  // cercano en rango), no atraviesa a varios.
+  for (const pl of bmAllPlayers()) {
+    if (pl.state !== PSTATE.ATTACK || pl.hitDone) continue;
     let mejor = null, mejorD = Infinity;
     for (const e of bmEnemies) {
       if (e.state === PSTATE.DEAD) continue;
@@ -131,20 +148,24 @@ function bmResolveHits() {
     if (mejor) {
       pl.hitDone = true;
       // atacar a la YAMAUBA en guardia letal = te contraataca
-      if (mejor.state === PSTATE.GUARD && mejor.guardCounter) bmGuardCounter(mejor);
+      if (mejor.state === PSTATE.GUARD && mejor.guardCounter) bmGuardCounter(mejor, pl);
       else bmHitEnemy(mejor, pl);
     }
   }
 
-  // enemigos golpean al jugador (o el jugador para con parry)
-  if (pl.state !== PSTATE.DEAD) {
-    for (const e of bmEnemies) {
-      const golpea = (e.state === PSTATE.ATTACK && !e.hitDone && bmInReach(e, pl));
-      const embiste = (e.chargeT > 0 && bmInReach(e, pl));
-      if (!golpea && !embiste) continue;
-      if (golpea) e.hitDone = true;
-      if (pl.parryT > 0 && !e.unblockable && !embiste) { bmParrySuccess(e); break; }
-      if (pl.invT <= 0 && pl.parryT <= 0) { bmHitPlayer(e); break; }
+  // enemigos golpean a los jugadores (o el jugador para con parry).
+  // Un golpe de enemigo afecta solo al primer jugador en su rango.
+  for (const e of bmEnemies) {
+    const golpeaAtaque = (e.state === PSTATE.ATTACK && !e.hitDone);
+    const embiste = (e.chargeT > 0);
+    if (!golpeaAtaque && !embiste) continue;
+    for (const pl of bmAllPlayers()) {
+      if (pl.state === PSTATE.DEAD) continue;
+      if (!bmInReach(e, pl)) continue;
+      if (golpeaAtaque) e.hitDone = true;
+      if (pl.parryT > 0 && !e.unblockable && !embiste) { bmParrySuccess(pl, e); break; }
+      if (pl.invT <= 0 && pl.parryT <= 0) { bmHitPlayer(pl, e); break; }
+      break;   // golpe consumido por este jugador (invulnerable): no pasa al otro
     }
   }
 }
@@ -153,39 +174,43 @@ function bmResolveHits() {
 const BM_PARRY_DUR = 0.18;   // ventana en que la parada desvía
 const BM_PARRY_CD = 0.5;     // enfriamiento
 
-function bmPlayerParry() {
-  if (bmScene !== 'play' || !bmPlayer) return;
-  const p = bmPlayer;
-  if (p.state !== PSTATE.IDLE || p.parryT > 0 || p.parryCd > 0 || bmRespawnT > 0) return;
+function bmDoParry(p) {
+  if (bmScene !== 'play' || !p) return;
+  if (p.state !== PSTATE.IDLE || p.parryT > 0 || p.parryCd > 0 || p.respawnT > 0) return;
   p.parryT = BM_PARRY_DUR;
   p.parryCd = BM_PARRY_CD;
   p.state = PSTATE.GUARD; p.stateTimer = 0.26; p.vx = 0;
   sfxBlock && sfxBlock();
 }
 
+function bmPlayerParry() {
+  if (bmCoop && !bmHost) { bmNetSendAction(3); return; }
+  bmDoParry(bmPlayer);
+}
+
 // parada exitosa: desvía el golpe; el común muere de la riposta, el jefe se tambalea
-function bmParrySuccess(e) {
+function bmParrySuccess(pl, e) {
   sfxParry && sfxParry();
   bmFlash = Math.max(bmFlash, 0.12); shake = 8;
   timeScale = 0.35; slowmoTimer = 0.22;
-  spawnClash((e.x + bmPlayer.x) / 2, bodyCenterY(e) - 8);
-  floatText(bmPlayer.x, bodyCenterY(bmPlayer) - 52, '¡PARADA!', '#80e8ff', 22);
-  bmPlayer.parryT = 0;
+  spawnClash((e.x + pl.x) / 2, bodyCenterY(e) - 8);
+  floatText(pl.x, bodyCenterY(pl) - 52, '¡PARADA!', '#80e8ff', 22);
+  pl.parryT = 0;
   if (e.isBoss) {
     if (e.hp > 1) e.hp -= 1;
     e.state = PSTATE.HITSTUN; e.stateTimer = 1.0; e.vx = -e.facing * 240;
-    if (e.hp <= 0) { bmKillFighter(e, bmPlayer); bmCreditKill(e, 1000); }
+    if (e.hp <= 0) { bmKillFighter(e, pl); bmCreditKill(e, 1000); }
   } else {
-    bmKillFighter(e, bmPlayer); bmCreditKill(e, 150);
+    bmKillFighter(e, pl); bmCreditKill(e, 150);
   }
 }
 
 // la yamauba en guardia contraataca a quien la golpea
-function bmGuardCounter(boss) {
+function bmGuardCounter(boss, pl) {
   boss.guardCounter = false; boss.state = PSTATE.IDLE; boss.atkCd = 0.5;
   floatText(boss.x, bodyCenterY(boss) - 52, '¡CONTRA!', '#e8404a', 20);
   sfxParry && sfxParry();
-  bmPlayerDie(boss.facing);
+  bmPlayerDie(pl, boss.facing);
 }
 
 function bmHitEnemy(e, att) {
@@ -216,20 +241,21 @@ function bmCreditKill(e, base) {
   bmScore += Math.round(base * bmMult);
 }
 
-// muerte del jugador (golpe enemigo, embestida, onda o contra)
-function bmPlayerDie(facing) {
-  const pl = bmPlayer;
-  if (pl.invT > 0 || pl.state === PSTATE.DEAD) return;
+// muerte de un jugador (golpe enemigo, embestida, onda o contra).
+// Las vidas son una BOLSA compartida: cada muerte gasta una; si quedan, ese
+// jugador reaparece; si no, queda en el suelo. El game over lo decide bm_update
+// cuando todos están caídos y no quedan vidas.
+function bmPlayerDie(pl, facing) {
+  if (!pl || pl.invT > 0 || pl.state === PSTATE.DEAD) return;
   bmLives -= 1;
   bmCombo = 0; bmMult = 1; bmComboT = 0;       // se pierde el combo al morir
   spawnBlood(pl.x, bodyCenterY(pl), facing, 30);
   bmKillFighter(pl, { facing: facing });
   bmFlash = 0.22;
-  if (bmLives <= 0) bmGameOverPending = true;
-  else bmRespawnT = 1.5;
+  pl.respawnT = bmLives > 0 ? 1.5 : 0;          // sin vidas: no reaparece
 }
-function bmHitPlayer(att) { bmPlayerDie(att.facing); }
-function bmHitPlayerByHazard(h) { bmPlayerDie(bmPlayer.x < h.x ? -1 : 1); }
+function bmHitPlayer(pl, att) { bmPlayerDie(pl, att.facing); }
+function bmHitPlayerByHazard(pl, h) { bmPlayerDie(pl, pl.x < h.x ? -1 : 1); }
 
 // muerte con cámara lenta y sangre (estilo del duelo)
 function bmKillFighter(victim, killer) {
@@ -242,7 +268,7 @@ function bmKillFighter(victim, killer) {
   victim.vy = -200;
   victim.bloodT = 1.4;
   sfxKill && sfxKill();
-  if (victim === bmPlayer) {
+  if (bmAllPlayers().includes(victim)) {
     // muerte del jugador: cámara lenta dramática
     shake = 16; timeScale = 0.18; slowmoTimer = 1.0; bmFlash = Math.max(bmFlash, 0.12);
   } else if (victim.isBoss) {

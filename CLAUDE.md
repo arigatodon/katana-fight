@@ -23,6 +23,9 @@ google-chrome --headless smoke.html   # leer el <pre id="result"> (errores, dete
 python3 e2e_online.py                  # levanta su propio server
 KATANA_URL='http://host/?server=ws://host' python3 e2e_online.py   # contra un deploy
 
+# E2E co-op del beat 'em up: dos navegadores juegan KATANA RŌNIN en línea
+python3 e2e_coop.py                    # empareja, juega, valida snapshots + sync
+
 # Regenerar la imagen de previsualización al compartir (og.png)
 python3 og_image.py
 
@@ -58,6 +61,9 @@ El modo online es **lockstep determinista**: el servidor solo empareja, reparte 
 
 ### Protocolo online
 `net.js` ↔ `server.js` por WebSocket. Mensajes: `join{name}` → `match{side,seed,foe}` → relé de `char{id}` (guerrero elegido) e `i{k,v}` (input empaquetado en bits por tic, con `NET_DELAY=4` tics de adelanto) → `bye` al desconectar. El input se codifica en bits (`packLocalInput`/`unpackInput`); `netPump()` avanza la simulación solo cuando tiene los inputs de ambos lados del tic.
+
+### Co-op del beat 'em up (KATANA RŌNIN) — autoritativo por host
+A diferencia del duelo (lockstep determinista), el co-op de `beat.html` es **autoritativo por host** porque el beat 'em up usa `Math.random` por todas partes y tiene muchas entidades (determinismo sería frágil). Vive en `bm_online.js` (no confundir con `bm_net.js`, que es el ranking del modo). El lado 0 (**host**) simula toda la partida y transmite SNAPSHOTS (`bs`) a ~20 Hz; el lado 1 (**invitado**) no simula: envía su input (`bd` dirección, `ba` acción) y renderiza interpolando. Comparte el servidor con el duelo pero en una **cola aparte** (`join{mode:'beat'}` → `waitingBeat`); el relé admite mensajes grandes (`RELAY_MAX`) por el peso de los snapshots. Vidas en bolsa compartida; los snapshots de transición terminal (win/gameover) se fuerzan para que el invitado siempre los reciba. Casi todo lo del co-op va detrás de `bmCoop`; el modo 1 jugador queda intacto. Probar con `python3 e2e_coop.py`.
 
 ### Presencia (aviso de "hay con quién jugar")
 La pantalla de título "late" con `GET /estado?id=<efímero>` cada 5 s (`pollPresence` en `net.js`, dibujado en `drawTitle`). El servidor mantiene un `Map` de presencia con TTL de 12 s y devuelve `{ presentes, esperando, jugando }` — así dos personas que solo miran el menú se ven y se animan a entrar, sin abrir WebSocket todavía. Es puramente informativo: **no toca la simulación**, por eso su id puede salir de `Math.random` sin contaminar el RNG con semilla.

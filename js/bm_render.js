@@ -89,6 +89,7 @@ function bmDraw() {
   if (bmScene === 'title') return bmDrawTitle();
   if (bmScene === 'choose') return bmDrawChoose();
   if (bmScene === 'ranking') return bmDrawRanking();
+  if (bmScene === 'online') return bmDrawOnline();
 
   // sacudida de pantalla
   ctx.save();
@@ -151,11 +152,15 @@ function bmDrawWorld() {
   }
 
   // luchadores ordenados por profundidad (más abajo = más al frente)
-  const all = bmEnemies.concat([bmPlayer]).filter(Boolean).sort((a, b) => a.y - b.y);
+  const jugadores = bmAllPlayers();
+  const all = bmEnemies.concat(jugadores).filter(Boolean).sort((a, b) => a.y - b.y);
   for (const f of all) {
-    // parpadeo de invulnerabilidad del jugador
-    if (f === bmPlayer && f.invT > 0 && Math.floor(bmTime * 20) % 2 === 0 && f.state !== PSTATE.DEAD) continue;
+    const esJugador = jugadores.includes(f);
+    // parpadeo de invulnerabilidad de un jugador
+    if (esJugador && f.invT > 0 && Math.floor(bmTime * 20) % 2 === 0 && f.state !== PSTATE.DEAD) continue;
     drawSamurai(f);
+    // co-op: etiqueta con el nombre sobre cada jugador (J1 verde / J2 azul)
+    if (esJugador && bmCoop && f.state !== PSTATE.DEAD) bmDrawNameTag(f);
   }
 
   // partículas (sangre, chispas)
@@ -213,16 +218,35 @@ function bmDrawBarriers() {
   ctx.textAlign = 'left';
 }
 
+// etiqueta de nombre sobre un jugador en co-op (verde = tú · azul = compañero)
+function bmDrawNameTag(f) {
+  const local = (f === bmPlayer);
+  const txt = local ? 'TÚ' : (bmNetFoe || 'ALIADO');
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 11px "Courier New", monospace';
+  ctx.fillStyle = local ? '#7ad06a' : '#6ab0e8';
+  ctx.shadowColor = '#000'; ctx.shadowBlur = 4;
+  ctx.fillText(txt, f.x, bodyCenterY(f) - 56 * (f.scale || 1));
+  ctx.restore();
+  ctx.textAlign = 'left';
+}
+
 // ---------------- HUD ----------------
 function bmDrawHud() {
   if (!bmStage) return;   // defensa: el HUD necesita una etapa cargada
-  // vidas (katanas)
+  // vidas (katanas) — en co-op la bolsa es compartida (bmLivesMax)
   ctx.save();
-  for (let i = 0; i < BM_LIVES; i++) {
+  for (let i = 0; i < bmLivesMax; i++) {
     ctx.globalAlpha = i < bmLives ? 1 : 0.22;
     bmDrawLifeIcon(20 + i * 26, 26);
   }
   ctx.globalAlpha = 1;
+  if (bmCoop) {
+    ctx.fillStyle = '#9ad0e8';
+    ctx.font = 'bold 11px "Courier New", monospace';
+    ctx.fillText('CO-OP', 20 + bmLivesMax * 26 + 4, 30);
+  }
 
   // puntaje
   ctx.fillStyle = '#e8e0d0';
@@ -362,25 +386,65 @@ function bmBackdrop() {
 
 function bmDrawTitle() {
   bmBackdrop();
-  bmCenterText('KATANA RŌNIN', 52, H * 0.34, '#e8c050', '#b03030');
-  bmCenterText('一  el camino del filo  一', 18, H * 0.34 + 38, '#c0b8a8');
+  bmCenterText('KATANA RŌNIN', 52, H * 0.30, '#e8c050', '#b03030');
+  bmCenterText('一  el camino del filo  一', 18, H * 0.30 + 38, '#c0b8a8');
   ctx.globalAlpha = 0.7 + Math.sin(bmTime * 3) * 0.3;
-  bmCenterText(BM_TOUCH ? 'TOCA LA PANTALLA PARA EMPEZAR' : 'PULSA  F  /  ENTER  PARA EMPEZAR', 18, H * 0.62, '#e8e0d0');
+  bmCenterText(BM_TOUCH ? 'TOCA PARA JUGAR SOLO' : 'PULSA  F  /  ENTER  ·  1 JUGADOR', 18, H * 0.55, '#e8e0d0');
   ctx.globalAlpha = 1;
+
+  // botón de CO-OP en línea
+  const b = BM_COOP_BTN;
+  ctx.save();
+  ctx.fillStyle = 'rgba(106,176,232,0.14)';
+  ctx.fillRect(b.x, b.y, b.w, b.h);
+  ctx.strokeStyle = '#6ab0e8'; ctx.lineWidth = 2;
+  ctx.strokeRect(b.x, b.y, b.w, b.h);
+  ctx.fillStyle = '#9ad0e8';
+  ctx.font = 'bold 17px "Courier New", monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText((BM_TOUCH ? '' : 'O · ') + '友  CO-OP EN LÍNEA', b.x + b.w / 2, b.y + b.h / 2 + 1);
+  ctx.restore();
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+
   if (BM_TOUCH) {
-    bmCenterText('◀ ▶ mover · ▲ saltar · 斬 cortar · » deslizar · 受 parar', 13, H * 0.79, '#9a9486');
+    bmCenterText('◀ ▶ mover · ▲ saltar · 斬 cortar · » deslizar · 受 parar', 13, H * 0.80, '#9a9486');
   } else {
-    bmCenterText('← →  mover     W / ↑  saltar     F  cortar', 14, H * 0.75, '#9a9486');
-    bmCenterText('SHIFT (ó doble ← / →) deslizar/esquivar     K / L  parar', 14, H * 0.81, '#9a9486');
-    bmCenterText('parar un golpe a tiempo te salva y abre al rival', 13, H * 0.87, '#8a8478');
+    bmCenterText('← →  mover    W / ↑  saltar    F  cortar    SHIFT  deslizar    K / L  parar', 13, H * 0.80, '#9a9486');
   }
-  bmCenterText('un golpe mata — avanza y derrota al yokai de cada etapa', 13, H * 0.92, '#8a8478');
+  bmCenterText('un golpe mata — avanza y derrota al yokai de cada etapa', 13, H * 0.86, '#8a8478');
+
+  // mensaje de error de red (desconexión, sin servidor…)
+  if (bmNetErrorT > 0 && bmNetError) {
+    ctx.globalAlpha = Math.min(1, bmNetErrorT);
+    bmCenterText('⚠ ' + bmNetError, 14, H * 0.92, '#e89060');
+    ctx.globalAlpha = 1;
+  }
   bmCenterText(BM_TOUCH ? '— toca aquí para ver el ranking —' : 'R · ver ranking', 12, H * 0.985, '#6a6458');
+}
+
+// pantalla de espera del co-op: buscando / esperando compañero / error
+function bmDrawOnline() {
+  bmBackdrop();
+  bmCenterText('友  CO-OP EN LÍNEA', 34, H * 0.3, '#6ab0e8', '#1a3a5a');
+  const fase = bmNet ? bmNet.fase : 'error';
+  let msg = 'conectando…', sub = '';
+  if (fase === 'buscando') { msg = 'buscando un compañero…'; sub = 'comparte el enlace para que alguien entre al modo'; }
+  else if (fase === 'eligiendo') { msg = 'compañero encontrado'; sub = 'elige tu guerrero'; }
+  else if (fase === 'esperando') { msg = 'esperando que tu compañero elija…'; sub = 'compañero: ' + (bmNetFoe || '???'); }
+  else if (fase === 'error') { msg = bmNetError || 'error de conexión'; sub = ''; }
+  // puntos animados
+  const dots = '.'.repeat(1 + (Math.floor(bmTime * 2) % 3));
+  bmCenterText(msg.replace(/…$/, dots), 20, H * 0.5, '#e8e0d0');
+  if (sub) bmCenterText(sub, 14, H * 0.58, '#9a9486');
+  ctx.globalAlpha = 0.6 + Math.sin(bmTime * 4) * 0.4;
+  bmCenterText(BM_TOUCH ? 'toca para cancelar' : 'F / ESC · cancelar', 14, H * 0.85, '#c0b8a8');
+  ctx.globalAlpha = 1;
 }
 
 function bmDrawChoose() {
   bmBackdrop();
   bmCenterText('ELIGE TU GUERRERO', 30, H * 0.2, '#e8c050');
+  if (bmCoop) bmCenterText('CO-OP · compañero: ' + (bmNetFoe || '???'), 14, H * 0.2 + 26, '#6ab0e8');
   const spots = [W * 0.28, W * 0.5, W * 0.72];
   for (let i = 0; i < BM_PLAYABLE.length; i++) {
     const ch = bmChar(BM_PLAYABLE[i]);
@@ -402,7 +466,10 @@ function bmDrawChoose() {
     bmWrap(ch.desc, spots[i], H * 0.78, 22, 18);
     ctx.textAlign = 'left';
   }
-  bmCenterText(BM_TOUCH ? 'toca un guerrero para empezar' : '← →  elegir      F  confirmar', 16, H * 0.92, '#e8e0d0');
+  const txt = bmCoop
+    ? (BM_TOUCH ? 'toca un guerrero para confirmar' : '← →  elegir      F  confirmar')
+    : (BM_TOUCH ? 'toca un guerrero para empezar' : '← →  elegir      F  confirmar');
+  bmCenterText(txt, 16, H * 0.92, '#e8e0d0');
 }
 
 function bmWrap(txt, x, y, maxChars, lh) {

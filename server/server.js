@@ -409,9 +409,16 @@ const httpServer = http.createServer((req, res) => {
 });
 
 const wss = new WebSocketServer({ server: httpServer });   // acepta /ws y cualquier ruta
-let waiting = null;
+let waiting = null;          // cola del DUELO 1v1
+let waitingBeat = null;      // cola del CO-OP del beat 'em up (KATANA RŌNIN)
 
-function pair(a, b) {
+// El co-op del beat 'em up es autoritativo por host: el lado 0 (anfitrión)
+// simula la partida y transmite snapshots; el lado 1 (invitado) solo envía su
+// input. Esos snapshots pesan más que el input del duelo, así que el relé
+// admite mensajes mayores para los emparejados (el handshake sigue acotado).
+const RELAY_MAX = 16384;
+
+function pair(a, b, modo) {
   a.peer = b;
   b.peer = a;
   a.side = 0;
@@ -420,7 +427,8 @@ function pair(a, b) {
   const seed = Math.floor(Math.random() * 0xffffffff);
   a.send(JSON.stringify({ t: 'match', side: 0, seed, foe: b.name }));
   b.send(JSON.stringify({ t: 'match', side: 1, seed, foe: a.name }));
-  console.log(new Date().toISOString(), `duelo emparejado: ${a.name} vs ${b.name} (semilla ${seed})`);
+  const etq = modo === 'beat' ? 'co-op beat' : 'duelo';
+  console.log(new Date().toISOString(), `${etq} emparejado: ${a.name} vs ${b.name} (semilla ${seed})`);
 }
 
 wss.on('connection', ws => {
@@ -430,31 +438,38 @@ wss.on('connection', ws => {
 
   ws.on('message', data => {
     const raw = data.toString();
-    if (raw.length > 512) return;            // nada legítimo es tan grande
     if (!ws.peer) {
+      if (raw.length > 512) return;           // el handshake es pequeño
       let m;
       try { m = JSON.parse(raw); } catch (e) { return; }
       if (m.t === 'join') {
         ws.name = String(m.name || '').replace(/[^\p{L}\p{N} _.-]/gu, '')
           .trim().slice(0, 12).toUpperCase() || 'ANÓNIMO';
-        if (waiting && waiting !== ws && waiting.readyState === 1) {
-          const w = waiting;
-          waiting = null;
-          pair(w, ws);
+        // dos colas separadas: el duelo 1v1 no se empareja con el co-op del beat
+        const beat = m.mode === 'beat';
+        ws.beat = beat;
+        if (beat) {
+          if (waitingBeat && waitingBeat !== ws && waitingBeat.readyState === 1) {
+            const w = waitingBeat; waitingBeat = null; pair(w, ws, 'beat');
+          } else { waitingBeat = ws; }
         } else {
-          waiting = ws;
+          if (waiting && waiting !== ws && waiting.readyState === 1) {
+            const w = waiting; waiting = null; pair(w, ws, 'duelo');
+          } else { waiting = ws; }
         }
       }
       return;
     }
+    if (raw.length > RELAY_MAX) return;        // los snapshots del co-op caben de sobra
     // resultado del duelo: lo anota el servidor, no se reenvía
     if (raw.startsWith('{"t":"result"')) { recordResult(ws, raw); return; }
-    // emparejado: relé directo al rival, sin mirar el contenido
+    // emparejado: relé directo al rival/compañero, sin mirar el contenido
     if (ws.peer.readyState === 1) ws.peer.send(raw);
   });
 
   ws.on('close', () => {
     if (waiting === ws) waiting = null;
+    if (waitingBeat === ws) waitingBeat = null;
     if (ws.peer) {
       if (ws.peer.readyState === 1) ws.peer.send(JSON.stringify({ t: 'bye' }));
       ws.peer.peer = null;

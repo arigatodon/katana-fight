@@ -69,27 +69,21 @@ function bmUpdate(dt) {
 
   if (bmScene !== 'play') return;
 
-  // ---- entrada del jugador ----
-  const pl = bmPlayer;
-  if (pl.slideCd > 0) pl.slideCd -= dt;
-  if (pl.slideT > 0 && pl.state === PSTATE.IDLE) {
-    // deslizamiento rápido en curso: impulso que decae, ignora el movimiento normal
-    pl.slideT -= dt;
-    pl.vx = pl.facing * BM_SLIDE_SPEED * Math.max(0.3, pl.slideT / BM_SLIDE_DUR);
-    if (Math.random() < 0.6) bmSlideDust(pl);
-  } else if (pl.state === PSTATE.IDLE && bmRespawnT <= 0) {
-    const dir = bmMoveDir();
-    if (dir !== 0) { pl.vx = dir * pl.speed; pl.facing = dir; }
-    else pl.vx = 0;
-  }
-  if (bmTouchAtk) { bmPlayerAttack(); bmTouchAtk = false; }
-  if (bmTouchJump) { bmPlayerJump(); bmTouchJump = false; }
-  if (bmTouchDash) { bmPlayerSlide(bmMoveDir() || pl.facing); bmTouchDash = false; }
-  if (bmTouchParry) { bmPlayerParry(); bmTouchParry = false; }
+  // En co-op, el INVITADO no simula: solo interpola los snapshots del host
+  // y envía su input. El host (y el modo 1 jugador) corren la simulación.
+  if (bmCoop && !bmHost) { bmGuestUpdate(dt); return; }
 
-  // ---- estados + física ----
-  bmStepState(pl, dt);
-  bmStepPhysics(pl, dt);
+  // ---- entrada y control de los jugadores ----
+  bmConsumeTouchActions();
+  for (const p of bmAllPlayers()) bmStepPlayerControl(p, dt);
+
+  // ---- estados + física de jugadores ----
+  for (const p of bmAllPlayers()) {
+    bmStepState(p, dt);
+    bmStepPhysics(p, dt);
+  }
+
+  // ---- enemigos ----
   for (const e of bmEnemies) {
     bmUpdateAI(e, dt);
     bmStepState(e, dt);
@@ -109,31 +103,42 @@ function bmUpdate(dt) {
   // el JEFE caído NO se borra: queda en el suelo manando sangre.
   for (let i = bmEnemies.length - 1; i >= 0; i--) {
     const e = bmEnemies[i];
-    if (e.state === PSTATE.DEAD && e.deathT > 1.2 && !e.isBoss) bmEnemies.splice(i, 1);
+    if (e.state === PSTATE.DEAD && e.deathT > 1.2 && !e.isBoss) {
+      if (e.nid != null) delete bmEnemiesById[e.nid];
+      bmEnemies.splice(i, 1);
+    }
   }
 
   // ---- jefe abatido: sangra sin parar hasta que se avanza ----
   if (bmBossDown && bmFallenBoss) bmBleed(bmFallenBoss);
 
-  // ---- respawn del jugador / game over ----
-  if (bmRespawnT > 0) {
-    bmRespawnT -= dt;
-    if (bmRespawnT <= 0) {
-      if (bmGameOverPending) { bmScene = 'gameover'; bmEndT = 1.2; if (typeof stopMusic === 'function') stopMusic(); }
-      else bmRespawnPlayer();
+  // ---- respawn de jugadores / game over ----
+  for (const p of bmAllPlayers()) {
+    if (p.respawnT > 0) {
+      p.respawnT -= dt;
+      if (p.respawnT <= 0) bmRespawnPlayer(p);
     }
-  } else if (pl.state === PSTATE.DEAD && bmGameOverPending) {
-    // murió sin respawn programado (última vida): espera la animación
-    if (pl.deathT > 1.0) { bmScene = 'gameover'; bmEndT = 1.2; if (typeof stopMusic === 'function') stopMusic(); }
+  }
+  // game over: sin vidas y todos los jugadores caídos (tras su animación)
+  if (bmLives <= 0 && bmAllPlayers().every(p => p.state === PSTATE.DEAD)) {
+    bmGameOverPending = true;
+    if (bmAllPlayers().every(p => p.deathT > 1.0)) {
+      bmScene = 'gameover'; bmEndT = 1.2;
+      if (typeof stopMusic === 'function') stopMusic();
+    }
   }
 
   // ---- oleadas y avance ----
   bmUpdateWaves();
 
   // ---- cámara ----
-  // arena fija durante una oleada; libre (sigue al jugador) entre oleadas
+  // arena fija durante una oleada; entre oleadas sigue a los jugadores vivos
   if (bmWaveActive) bmCamX = bmCamMax;
-  else bmCamX = Math.max(0, Math.min(bmCamMax, pl.x - W * 0.42));
+  else {
+    const vivos = bmAllPlayers().filter(p => p.state !== PSTATE.DEAD);
+    const ax = vivos.length ? vivos.reduce((s, p) => s + p.x, 0) / vivos.length : bmPlayer.x;
+    bmCamX = Math.max(0, Math.min(bmCamMax, ax - W * 0.42));
+  }
 
   // efectos globales (slowmo, shake) reusan los timers del duelo
   if (slowmoTimer > 0) { slowmoTimer -= dt; if (slowmoTimer <= 0) timeScale = 1; }
@@ -142,42 +147,71 @@ function bmUpdate(dt) {
   // partículas / textos / estelas (mismos arrays que el duelo)
   bmStepFx(dt);
   bmStepAmbient(dt);
+
+  // host: transmite el estado al invitado (a ~20 Hz)
+  if (bmCoop && bmHost) bmNetHostTick(dt);
+}
+
+// control de un jugador: deslizamiento en curso o movimiento sostenido.
+// La dirección del LOCAL sale del teclado/táctil; la del compañero (en el host)
+// llega por red en p._dir.
+function bmStepPlayerControl(p, dt) {
+  if (p.slideCd > 0) p.slideCd -= dt;
+  if (p.slideT > 0 && p.state === PSTATE.IDLE) {
+    p.slideT -= dt;
+    p.vx = p.facing * BM_SLIDE_SPEED * Math.max(0.3, p.slideT / BM_SLIDE_DUR);
+    if (Math.random() < 0.6) bmSlideDust(p);
+  } else if (p.state === PSTATE.IDLE && p.respawnT <= 0) {
+    const dir = (p === bmPlayer) ? bmMoveDir() : (p._dir || 0);
+    if (dir !== 0) { p.vx = dir * p.speed; p.facing = dir; }
+    else p.vx = 0;
+  }
+}
+
+// acciones táctiles del jugador LOCAL (un flanco cada una); los despachadores
+// las dirigen al host o al jugador local según el rol.
+function bmConsumeTouchActions() {
+  const pl = bmPlayer;
+  if (bmTouchAtk) { bmPlayerAttack(); bmTouchAtk = false; }
+  if (bmTouchJump) { bmPlayerJump(); bmTouchJump = false; }
+  if (bmTouchDash) { bmPlayerSlide(bmMoveDir() || (pl && pl.facing)); bmTouchDash = false; }
+  if (bmTouchParry) { bmPlayerParry(); bmTouchParry = false; }
 }
 
 // peligros de jefe (onda del kappa, picada del tengu, aplastón): mueven, crecen
 // y matan al jugador. La ONDA se salta (solo golpea si estás en el suelo).
 function bmStepHazards(dt) {
-  const pl = bmPlayer;
   for (let i = bmHazards.length - 1; i >= 0; i--) {
     const h = bmHazards[i];
     h.life -= dt;
     h.x += h.vx * dt;
     if (h.grow) h.r += h.grow * dt;
     if (h.life <= 0) { bmHazards.splice(i, 1); continue; }
-    if (!pl || pl.state === PSTATE.DEAD || pl.invT > 0 || pl.parryT > 0) continue;
-    const cerca = Math.abs(pl.x - h.x) < h.r;
-    const alcanza = h.kind === 'shock' ? pl.onGround : true;   // la onda se esquiva saltando
-    if (cerca && alcanza) { bmHitPlayerByHazard(h); break; }
+    for (const pl of bmAllPlayers()) {
+      if (!pl || pl.state === PSTATE.DEAD || pl.invT > 0 || pl.parryT > 0) continue;
+      const cerca = Math.abs(pl.x - h.x) < h.r;
+      const alcanza = h.kind === 'shock' ? pl.onGround : true;   // la onda se esquiva saltando
+      if (cerca && alcanza) { bmHitPlayerByHazard(pl, h); break; }
+    }
   }
 }
 
-function bmRespawnPlayer() {
-  const pl = bmPlayer;
-  pl.state = PSTATE.IDLE;
-  pl.stateTimer = 0;
-  pl.deathT = 0;
-  pl.vida = VIDA_MAX;
-  pl.vx = 0; pl.vy = 0;
-  pl.invT = 2.0;
-  pl.y = GROUND; pl.onGround = true;
+function bmRespawnPlayer(p) {
+  p.state = PSTATE.IDLE;
+  p.stateTimer = 0;
+  p.deathT = 0;
+  p.vida = VIDA_MAX;
+  p.vx = 0; p.vy = 0;
+  p.invT = 2.0;
+  p.y = GROUND; p.onGround = true;
   // reaparece en el borde izquierdo de la pantalla actual y empuja enemigos
-  pl.x = bmCamX + 90;
-  pl.facing = 1;
+  p.x = bmCamX + 90 + (p === bmMate ? 40 : 0);
+  p.facing = 1;
 }
 
 // dispara oleadas, bloquea la cámara y detecta etapa superada
 function bmUpdateWaves() {
-  const pl = bmPlayer;
+  const pl = bmLeadPlayer();   // el jugador vivo más adelantado marca el avance
   if (!bmWaveActive) {
     // todas las oleadas (incluido el jefe) ya despachadas
     if (bmWaveIdx >= bmStage.waves.length) {
@@ -203,8 +237,8 @@ function bmUpdateWaves() {
   } else {
     // oleada activa: ¿quedan vivos?
     const alive = bmEnemies.some(e => e.state !== PSTATE.DEAD);
-    // arena bloqueada: el jugador queda confinado a esta pantalla
-    pl.x = Math.max(bmCamMax + 50, Math.min(bmCamMax + W - 60, pl.x));
+    // arena bloqueada: los jugadores quedan confinados a esta pantalla
+    for (const p of bmAllPlayers()) p.x = Math.max(bmCamMax + 50, Math.min(bmCamMax + W - 60, p.x));
     if (!alive) {
       bmWaveActive = false;
       bmWaveIdx += 1;
