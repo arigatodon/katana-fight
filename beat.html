@@ -1,5 +1,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<!-- pantalla completa al lanzar desde "Añadir a inicio" (sobre todo en iPhone, que no permite la API de fullscreen) -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="KATANA RŌNIN">
+<meta name="mobile-web-app-capable" content="yes">
 <title>KATANA RŌNIN — beat 'em up</title>
 <style>
   html, body { margin: 0; height: 100%; background: #0c0a0c; overflow: hidden; }
@@ -14,6 +19,13 @@
   #volver { position: fixed; top: 8px; left: 10px; z-index: 10;
             color: #9a9486; text-decoration: none; font-size: 13px; opacity: .6; }
   #volver:hover { opacity: 1; color: #e8c050; }
+  #fs { position: fixed; top: 6px; right: 8px; z-index: 10;
+        background: rgba(20,20,28,0.55); border: 1px solid #6a6458; border-radius: 6px;
+        color: #c0b8a8; font-size: 20px; line-height: 1; padding: 6px 9px; cursor: pointer;
+        opacity: .7; -webkit-user-select: none; user-select: none; }
+  #fs:hover { opacity: 1; color: #e8c050; border-color: #e8c050; }
+  /* en pantalla completa el botón ya no hace falta verse tan marcado */
+  :fullscreen #fs, :-webkit-full-screen #fs { opacity: .35; }
   #rotate { display: none; position: fixed; inset: 0; z-index: 20;
             background: #0c0a0c; color: #e8e0d0; align-items: center;
             justify-content: center; text-align: center; font-size: 22px; line-height: 1.8; }
@@ -26,8 +38,45 @@
 </style>
 
 <a id="volver" href="index.html">← duelos</a>
+<button id="fs" title="Pantalla completa" aria-label="Pantalla completa">⛶</button>
 <div id="rotate">📱⟳<br>Gira tu teléfono<br><span style="font-size:15px;color:#998">el beat 'em up se juega en horizontal</span></div>
 <div id="wrap"><canvas id="game" width="960" height="540"></canvas><input id="bmName" maxlength="12" autocomplete="off" spellcheck="false" placeholder="TU NOMBRE"></div>
+
+<script>
+// Pantalla completa: funciona en Android, iPad y escritorio (API Fullscreen).
+// En iPhone Safari la API no existe para juegos → ahí el botón no hace nada,
+// pero "Compartir → Añadir a inicio" abre el juego a pantalla completa gracias
+// a las metaetiquetas apple-mobile-web-app-*.
+(function () {
+  var btn = document.getElementById('fs');
+  if (!btn) return;
+  var root = document.documentElement;
+  function fsEl() { return document.fullscreenElement || document.webkitFullscreenElement; }
+  function soportado() {
+    return !!(root.requestFullscreen || root.webkitRequestFullscreen || document.documentElement.webkitRequestFullScreen);
+  }
+  if (!soportado()) { btn.style.display = 'none'; return; }   // p. ej. iPhone: lo ocultamos
+  function toggle() {
+    if (!fsEl()) {
+      var req = root.requestFullscreen || root.webkitRequestFullscreen;
+      try {
+        var pr = req.call(root);
+        if (pr && pr.then) pr.then(bloquearOrientacion).catch(function () {});
+        else bloquearOrientacion();
+      } catch (e) {}
+    } else {
+      try { (document.exitFullscreen || document.webkitExitFullscreen).call(document); } catch (e) {}
+    }
+  }
+  function bloquearOrientacion() {
+    try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(function () {}); } catch (e) {}
+  }
+  btn.addEventListener('click', toggle);
+  function actualizarIcono() { btn.textContent = fsEl() ? '🗗' : '⛶'; }
+  document.addEventListener('fullscreenchange', actualizarIcono);
+  document.addEventListener('webkitfullscreenchange', actualizarIcono);
+})();
+</script>
 
 <!-- núcleo reutilizado del duelo 1v1 (sin tocar su lógica) -->
 <script src="js/core.js"></script>     <!-- canvas, constantes, RNG, guardado -->
