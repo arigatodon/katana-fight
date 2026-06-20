@@ -20,53 +20,52 @@ function bmLoadBg(id) {
 }
 
 // ---------------- ambiente animado del escenario ----------------
-function bmInitAmbient(id) {
-  bmAmbient = [];
-  if (id === 'monte') {
-    for (let i = 0; i < 80; i++) bmAmbient.push({ k: 'snow', x: Math.random() * W, y: Math.random() * H, vy: 30 + Math.random() * 45, sway: Math.random() * 6.28, r: 1 + Math.random() * 2.4 });
-  } else if (id === 'bambu') {
-    for (let i = 0; i < 24; i++) bmAmbient.push({ k: 'leaf', x: Math.random() * W, y: Math.random() * H, vy: 16 + Math.random() * 22, sway: Math.random() * 6.28, r: 2 + Math.random() * 2 });
-  }
-  const nBirds = id === 'costa' ? 6 : id === 'monte' ? 0 : 3;   // aves cruzando el cielo
-  for (let i = 0; i < nBirds; i++) {
-    bmAmbient.push({ k: 'bird', x: Math.random() * W, y: 24 + Math.random() * 150, vx: (Math.random() < 0.5 ? -1 : 1) * (26 + Math.random() * 34), flap: Math.random() * 6.28, s: 5 + Math.random() * 5 });
-  }
-}
+//  Reutiliza las imágenes y animaciones de escena.js (assets/props/): aves,
+//  grullas, pétalos de sakura, hojas, olas, koi, nieve y nubes. Cada etapa del
+//  beat 'em up tiene su propia lista de capas (cielo = detrás, frente = delante).
+const BM_CAPAS = {
+  calle: [
+    { id: 'nube',    capa: 'cielo', anim: 'deriva', y: 0.12, h: 0.12, vx: 10, alpha: 0.9 },
+    { id: 'pajaros', capa: 'cielo', anim: 'vuela',  y: 0.20, h: 0.09, vx: 50 },
+    { id: 'nube',    capa: 'cielo', anim: 'deriva', y: 0.27, h: 0.08, vx: 6,  alpha: 0.6 },
+  ],
+  bambu: [
+    { id: 'pajaros', capa: 'cielo',  anim: 'vuela', y: 0.15, h: 0.08, vx: 44 },
+    { id: 'hojas',   capa: 'frente', anim: 'cae',   x: 0.55, h: 0.30, vy: 26, sway: 60, copias: 2, spin: 0.4 },
+    { id: 'sakura',  capa: 'frente', anim: 'cae',   x: 0.30, h: 0.24, vy: 20, sway: 50, copias: 2 },
+  ],
+  rio: [
+    { id: 'nube',     capa: 'cielo',  anim: 'deriva', y: 0.12, h: 0.12, vx: 12, alpha: 0.9 },
+    { id: 'grulla',   capa: 'cielo',  anim: 'vuela',  y: 0.20, h: 0.12, vx: 42, flip: true },
+    { id: 'koi',      capa: 'frente', anim: 'koi',    x: 0.70, h: 0.26, yBase: 1.04, height: 0.30, period: 6, jump: 1.6 },
+    { id: 'ola_baja', capa: 'frente', anim: 'olas',   x: 0.14, y: 0.99, h: 0.20, amp: 7, speed: 1.1, sway: 12 },
+  ],
+  costa: [
+    { id: 'nube',     capa: 'cielo',  anim: 'deriva', y: 0.10, h: 0.12, vx: 10, alpha: 0.9 },
+    { id: 'grulla',   capa: 'cielo',  anim: 'vuela',  y: 0.18, h: 0.12, vx: 40, flip: true },
+    { id: 'pajaros',  capa: 'cielo',  anim: 'vuela',  y: 0.26, h: 0.08, vx: 62 },
+    { id: 'ola_alta', capa: 'frente', anim: 'olas',   x: 0.85, y: 0.94, h: 0.36, amp: 10, speed: 0.9, sway: 16 },
+    { id: 'ola_baja', capa: 'frente', anim: 'olas',   x: 0.12, y: 0.99, h: 0.22, amp: 8,  speed: 1.1, sway: 12, phase: 1.2 },
+  ],
+  monte: [
+    { id: 'nube',         capa: 'cielo',  anim: 'deriva', y: 0.10, h: 0.10, vx: 14, alpha: 0.8 },
+    { id: 'nieve_rafaga', capa: 'frente', anim: 'cae',    x: 0.5,  h: 0.40, vy: 55, sway: 90, copias: 2, alpha: 0.85 },
+  ],
+};
 
-function bmStepAmbient(dt) {
-  for (const a of bmAmbient) {
-    if (a.k === 'snow' || a.k === 'leaf') {
-      a.sway += dt * 2; a.y += a.vy * dt;
-      a.x += Math.sin(a.sway) * (a.k === 'leaf' ? 22 : 9) * dt;
-      if (a.y > H + 6) { a.y = -6; a.x = Math.random() * W; }
-    } else if (a.k === 'bird') {
-      a.x += a.vx * dt; a.flap += dt * 8;
-      if (a.vx > 0 && a.x > W + 24) a.x = -24;
-      if (a.vx < 0 && a.x < -24) a.x = W + 24;
-    }
-  }
-}
+// init/step quedan como no-op: las animaciones de escena.js son por tiempo (gTime)
+function bmInitAmbient(id) {}
+function bmStepAmbient(dt) {}
 
-// se dibuja dentro del translate de cámara; +camX las fija al cielo (parallax 0)
-function bmDrawAmbient(camX) {
-  for (const a of bmAmbient) {
-    const x = a.x + camX;
-    if (a.k === 'snow') {
-      ctx.fillStyle = 'rgba(255,255,255,0.8)';
-      ctx.beginPath(); ctx.arc(x, a.y, a.r, 0, 6.29); ctx.fill();
-    } else if (a.k === 'leaf') {
-      ctx.fillStyle = 'rgba(110,150,64,0.7)';
-      ctx.beginPath(); ctx.ellipse(x, a.y, a.r * 1.6, a.r * 0.7, a.sway, 0, 6.29); ctx.fill();
-    } else if (a.k === 'bird') {
-      const w = Math.sin(a.flap) * 0.5 + 0.5;
-      ctx.strokeStyle = 'rgba(28,28,38,0.65)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(x - a.s, a.y + w * a.s * 0.5);
-      ctx.lineTo(x, a.y - w * a.s * 0.35);
-      ctx.lineTo(x + a.s, a.y + w * a.s * 0.5);
-      ctx.stroke();
-    }
-  }
+// dibuja la capa pedida usando animar() de escena.js (espacio de pantalla).
+// Sincroniza gTime con el reloj del beat 'em up para que las animaciones corran.
+function bmDrawCapas(capa) {
+  if (!bmStage || typeof animar !== 'function') return;
+  const prevG = gTime;
+  gTime = bmTime;
+  const list = BM_CAPAS[bmStage.id] || [];
+  for (const e of list) if (e.capa === capa) animar(e);
+  gTime = prevG;
 }
 
 // peligros de jefe: onda de choque, aoe de picada
@@ -122,8 +121,9 @@ function bmDrawWorld() {
 
   bmDrawBg();
 
-  // adornos animados del cielo (aves) detrás de la acción
-  bmDrawAmbient(Math.round(bmCamX));
+  // capa de adorno DETRÁS de la acción (aves, grullas, nubes), en espacio de
+  // pantalla: anulamos el translate de cámara para que floten fijas al cielo
+  ctx.save(); ctx.translate(Math.round(bmCamX), 0); bmDrawCapas('cielo'); ctx.restore();
 
   // manchas de sangre acumuladas en el suelo (jefe abatido)
   for (const s of bmStains) {
@@ -174,6 +174,9 @@ function bmDrawWorld() {
   }
   ctx.globalAlpha = 1;
   ctx.textAlign = 'left';
+
+  // capa de adorno DELANTE de la acción (olas, koi, pétalos, nieve), pantalla
+  ctx.save(); ctx.translate(Math.round(bmCamX), 0); bmDrawCapas('frente'); ctx.restore();
 
   // barreras visuales cuando la oleada bloquea el avance
   if (bmWaveActive) bmDrawBarriers();
