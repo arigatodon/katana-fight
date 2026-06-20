@@ -5,6 +5,7 @@
 // ============================================================
 
 const bmKeys = {};
+const bmNameEl = document.getElementById('bmName');   // input HTML para el ranking
 let bmTouchDir = 0, bmTouchAtk = false, bmTouchJump = false, bmTouchDash = false, bmTouchParry = false;
 const BM_PARRY_KEYS = ['KeyL', 'KeyK'];
 let bmLastTapDir = 0, bmLastTapT = -9;   // detección de doble toque para el dash
@@ -26,6 +27,8 @@ function bmDown(action) {
 }
 
 addEventListener('keydown', e => {
+  // si se está escribiendo el nombre, el input maneja las teclas (no el juego)
+  if (bmNameEl && document.activeElement === bmNameEl) return;
   if (typeof initAudio === 'function') initAudio();
   const prev = bmKeys[e.code];
   bmKeys[e.code] = true;
@@ -36,7 +39,12 @@ addEventListener('keydown', e => {
 
   // ---- menús ----
   if (bmScene === 'title') {
+    if (e.code === 'KeyR') { bmLoadRank(); bmScene = 'ranking'; sfxConfirm && sfxConfirm(); return; }
     if (BM_BIND.attack.includes(e.code) || e.code === 'Space') { bmScene = 'choose'; sfxConfirm && sfxConfirm(); }
+    return;
+  }
+  if (bmScene === 'ranking') {
+    bmScene = 'title'; sfxConfirm && sfxConfirm();
     return;
   }
   if (bmScene === 'choose') {
@@ -133,12 +141,45 @@ if (BM_TOUCH) {
 // navegación de menús por toque
 function bmMenuTap(p) {
   if (typeof initAudio === 'function') initAudio();
-  if (bmScene === 'title') { bmScene = 'choose'; sfxConfirm && sfxConfirm(); return; }
+  if (bmScene === 'title') {
+    if (p.y > H * 0.95) { bmLoadRank(); bmScene = 'ranking'; sfxConfirm && sfxConfirm(); return; }  // franja inferior: ranking
+    bmScene = 'choose'; sfxConfirm && sfxConfirm(); return;
+  }
   if (bmScene === 'choose') {
     const zona = p.x < W / 3 ? 0 : p.x < 2 * W / 3 ? 1 : 2;   // toca un guerrero = elígelo
     bmChooseSel = zona; sfxConfirm && sfxConfirm(); bmStartGame(BM_PLAYABLE[zona]); return;
   }
+  if (bmScene === 'ranking') { bmScene = 'title'; sfxConfirm && sfxConfirm(); return; }
   if ((bmScene === 'gameover' || bmScene === 'win') && bmEndT <= 0) {
+    // tocar fuera del input = volver al título (el input maneja su propio toque)
     bmScene = 'title'; sfxConfirm && sfxConfirm();
+  }
+}
+
+// ---- entrada del nombre para el ranking ----
+if (bmNameEl) {
+  bmNameEl.addEventListener('keydown', e => {
+    e.stopPropagation();                       // no llega al juego
+    if (e.code === 'Enter') { e.preventDefault(); bmConfirmName(); }
+  });
+}
+
+function bmConfirmName() {
+  const name = ((bmNameEl && bmNameEl.value) || '').trim() || 'RŌNIN';
+  if (typeof save !== 'undefined') { save.onlineName = name; if (typeof persist === 'function') persist(); }
+  bmSubmitScore(name, bmScore, bmKills, bmStageIdx + 1);
+  if (bmNameEl) bmNameEl.blur();
+  bmScene = 'ranking';
+}
+
+// muestra/oculta el input de nombre según la escena (llamado cada frame en bmDraw)
+function bmSyncNameInput() {
+  if (!bmNameEl) return;
+  const show = (bmScene === 'gameover' || bmScene === 'win') && bmEndT <= 0;
+  if (show && bmNameEl.style.display !== 'block') {
+    bmNameEl.style.display = 'block';
+    if (!bmNameEl.value && typeof save !== 'undefined') bmNameEl.value = save.onlineName || '';
+  } else if (!show && bmNameEl.style.display === 'block') {
+    bmNameEl.style.display = 'none';
   }
 }

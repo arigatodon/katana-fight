@@ -11,7 +11,7 @@ function bmTick(dt) {
   // temporizadores de pantallas de transición
   if (bmEndT > 0) bmEndT -= dt;
 
-  if (bmScene === 'title' || bmScene === 'choose' || bmScene === 'gameover' || bmScene === 'win') {
+  if (bmScene === 'title' || bmScene === 'choose' || bmScene === 'gameover' || bmScene === 'win' || bmScene === 'ranking') {
     bmTime += dt;
     if (bmFlash > 0) bmFlash -= dt;
     return;

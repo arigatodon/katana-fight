@@ -78,6 +78,59 @@ function recordResult(ws, raw) {
   saveRanking();
   console.log(new Date().toISOString(), `duelo anotado: ${winName} vence a ${loseName} (+${pts} pts)`);
 }
+// ---------------- Ranking del beat 'em up (KATANA RŌNIN) ----------------
+// Modo de 1 jugador: NO hay un segundo cliente con qué verificar, así que el
+// puntaje se confía al cliente. Es una tabla CASUAL aparte de la del duelo;
+// solo se limita con un tope y antiabuso por IP. Guarda el mejor por nombre.
+const BEAT_RANK_FILE = path.join(DATA_DIR, 'beat_ranking.json');
+const MAX_BEAT_SCORE = 200000;       // tope sano para una partida completa
+let beatRanking = {};                // nombre → { score, kills, stage, fecha }
+try { beatRanking = JSON.parse(fs.readFileSync(BEAT_RANK_FILE, 'utf8')); } catch (e) {}
+const lastBeatByIp = new Map();      // antiabuso: 1 envío por IP cada 3 s
+
+function saveBeatRanking() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(BEAT_RANK_FILE, JSON.stringify(beatRanking));
+  } catch (e) { console.error('no se pudo guardar el ranking beat:', e.message); }
+}
+
+function topBeat(n) {
+  return Object.entries(beatRanking)
+    .map(([name, r]) => ({ name, ...r }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, n);
+}
+
+function postBeatScore(req, res) {
+  let body = '';
+  req.on('data', ch => { body += ch; if (body.length > 2048) req.destroy(); });
+  req.on('end', () => {
+    const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '')
+      .split(',')[0].trim();
+    if (Date.now() - (lastBeatByIp.get(ip) || 0) < 3000) {
+      res.writeHead(429, CORS_JSON); res.end(JSON.stringify({ ok: false, top: topBeat(10) })); return;
+    }
+    lastBeatByIp.set(ip, Date.now());
+    let m; try { m = JSON.parse(body); } catch (e) { m = null; }
+    const name = String((m && m.name) || '').replace(/[^\p{L}\p{N} _.-]/gu, '')
+      .trim().slice(0, 12).toUpperCase() || 'RŌNIN';
+    const score = Math.max(0, Math.min(MAX_BEAT_SCORE, Math.floor(+(m && m.score)) || 0));
+    const kills = Math.max(0, Math.min(99999, Math.floor(+(m && m.kills)) || 0));
+    const stage = Math.max(0, Math.min(5, Math.floor(+(m && m.stage)) || 0));
+    if (score > 0) {
+      const cur = beatRanking[name];
+      if (!cur || score > cur.score) {
+        beatRanking[name] = { score, kills, stage, fecha: new Date().toISOString().slice(0, 10) };
+        saveBeatRanking();
+        console.log(new Date().toISOString(), `beat: ${name} → ${score} pts (etapa ${stage}, ${kills} bajas)`);
+      }
+    }
+    res.writeHead(200, CORS_JSON);
+    res.end(JSON.stringify({ ok: true, top: topBeat(10) }));
+  });
+}
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -212,6 +265,12 @@ const httpServer = http.createServer((req, res) => {
     res.end(JSON.stringify(topRanking(10)));
     return;
   }
+  if (p === '/beatrank') {                // tabla del beat 'em up
+    res.writeHead(200, CORS_JSON);
+    res.end(JSON.stringify(topBeat(10)));
+    return;
+  }
+  if (p === '/beatscore' && req.method === 'POST') { postBeatScore(req, res); return; }
   if (p === '/estado') {                 // presencia: ¿hay con quién emparejarse?
     let id = '';
     try { id = new URL(req.url, 'http://x').searchParams.get('id') || ''; } catch (e) {}

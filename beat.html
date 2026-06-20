@@ -18,11 +18,16 @@
             background: #0c0a0c; color: #e8e0d0; align-items: center;
             justify-content: center; text-align: center; font-size: 22px; line-height: 1.8; }
   @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
+  #bmName { display: none; position: absolute; left: 50%; top: 60%;
+            transform: translate(-50%, -50%); width: 60%; max-width: 380px;
+            padding: 9px 14px; background: rgba(10,10,18,0.92); border: 2px solid #e8c050;
+            color: #fff; font-family: "Courier New", monospace; font-size: 22px; font-weight: bold;
+            text-align: center; text-transform: uppercase; letter-spacing: 2px; outline: none; }
 </style>
 
 <a id="volver" href="index.html">← duelos</a>
 <div id="rotate">📱⟳<br>Gira tu teléfono<br><span style="font-size:15px;color:#998">el beat 'em up se juega en horizontal</span></div>
-<div id="wrap"><canvas id="game" width="960" height="540"></canvas></div>
+<div id="wrap"><canvas id="game" width="960" height="540"></canvas><input id="bmName" maxlength="12" autocomplete="off" spellcheck="false" placeholder="TU NOMBRE"></div>
 
 <!-- núcleo reutilizado del duelo 1v1 (sin tocar su lógica) -->
 <script src="js/core.js"></script>     <!-- canvas, constantes, RNG, guardado -->
@@ -35,6 +40,7 @@
 
 <!-- spin-off beat 'em up -->
 <script src="js/bm_core.js"></script>   <!-- estado, etapas, oleadas, creación de luchadores -->
+<script src="js/bm_net.js"></script>    <!-- ranking del modo (envío de puntaje + tabla) -->
 <script src="js/bm_input.js"></script>  <!-- teclado (1 jugador) -->
 <script src="js/bm_combat.js"></script> <!-- golpes letales -->
 <script src="js/bm_ai.js"></script>     <!-- IA de los enemigos -->

@@ -85,8 +85,10 @@ function bmDrawHazards() {
 
 function bmDraw() {
   ctx.clearRect(0, 0, W, H);
+  if (typeof bmSyncNameInput === 'function') bmSyncNameInput();
   if (bmScene === 'title') return bmDrawTitle();
   if (bmScene === 'choose') return bmDrawChoose();
+  if (bmScene === 'ranking') return bmDrawRanking();
 
   // sacudida de pantalla
   ctx.save();
@@ -213,6 +215,7 @@ function bmDrawBarriers() {
 
 // ---------------- HUD ----------------
 function bmDrawHud() {
+  if (!bmStage) return;   // defensa: el HUD necesita una etapa cargada
   // vidas (katanas)
   ctx.save();
   for (let i = 0; i < BM_LIVES; i++) {
@@ -371,7 +374,8 @@ function bmDrawTitle() {
     bmCenterText('SHIFT (ó doble ← / →) deslizar/esquivar     K / L  parar', 14, H * 0.81, '#9a9486');
     bmCenterText('parar un golpe a tiempo te salva y abre al rival', 13, H * 0.87, '#8a8478');
   }
-  bmCenterText('un golpe mata — avanza y derrota al yokai de cada etapa', 13, H * 0.94, '#8a8478');
+  bmCenterText('un golpe mata — avanza y derrota al yokai de cada etapa', 13, H * 0.92, '#8a8478');
+  bmCenterText(BM_TOUCH ? '— toca aquí para ver el ranking —' : 'R · ver ranking', 12, H * 0.985, '#6a6458');
 }
 
 function bmDrawChoose() {
@@ -412,13 +416,49 @@ function bmWrap(txt, x, y, maxChars, lh) {
 }
 
 function bmDrawEnd(title, sub, color) {
-  ctx.fillStyle = 'rgba(0,0,0,0.72)'; ctx.fillRect(0, 0, W, H);
-  bmCenterText(title, 56, H * 0.4, color, color);
-  bmCenterText(sub, 18, H * 0.49, '#d8cfbf');
-  bmCenterText('Puntuación final: ' + bmScore + '  ·  ' + bmKills + ' enemigos', 16, H * 0.57, '#c0b8a8');
+  ctx.fillStyle = 'rgba(0,0,0,0.74)'; ctx.fillRect(0, 0, W, H);
+  bmCenterText(title, 52, H * 0.26, color, color);
+  bmCenterText(sub, 17, H * 0.34, '#d8cfbf');
+  bmCenterText(bmScore + ' puntos  ·  ' + bmKills + ' enemigos  ·  mejor combo ' + bmComboBest, 16, H * 0.42, '#c0b8a8');
   if (bmEndT <= 0) {
+    bmCenterText('escribe tu nombre y pulsa ENTER para entrar al ranking', 14, H * 0.52, '#9a9486');
     ctx.globalAlpha = 0.6 + Math.sin(bmTime * 4) * 0.4;
-    bmCenterText('PULSA  F  PARA VOLVER', 16, H * 0.7, '#e8e0d0');
+    bmCenterText(BM_TOUCH ? 'toca el cuadro · o toca fuera para volver' : 'ENTER: ranking      F: volver al título', 14, H * 0.78, '#e8e0d0');
     ctx.globalAlpha = 1;
   }
+}
+
+// ---------------- tabla del ranking del modo ----------------
+function bmDrawRanking() {
+  bmBackdrop();
+  bmCenterText('RANKING · KATANA RŌNIN', 30, H * 0.16, '#e8c050', '#b03030');
+  if (bmRankState === 'loading' || (!bmRankList && bmRankState !== 'error')) {
+    bmCenterText('cargando…', 18, H * 0.5, '#c0b8a8');
+  } else if (bmRankState === 'error' || !bmRankList) {
+    bmCenterText('no se pudo cargar el ranking', 16, H * 0.5, '#c08080');
+  } else if (bmRankList.length === 0) {
+    bmCenterText('aún no hay puntajes — ¡sé el primero!', 16, H * 0.5, '#c0b8a8');
+  } else {
+    ctx.textAlign = 'left';
+    const x0 = W * 0.22, x1 = W * 0.7, x2 = W * 0.84;
+    ctx.font = '13px "Courier New", monospace'; ctx.fillStyle = '#9a8a6a';
+    ctx.fillText('#  GUERRERO', x0, H * 0.26);
+    ctx.textAlign = 'right';
+    ctx.fillText('PUNTOS', x1, H * 0.26); ctx.fillText('ETAPA', x2, H * 0.26);
+    for (let i = 0; i < bmRankList.length; i++) {
+      const r = bmRankList[i], y = H * 0.32 + i * H * 0.058;
+      const mine = typeof save !== 'undefined' && r.name === (save.onlineName || '').toUpperCase();
+      ctx.fillStyle = mine ? '#e8c050' : (i === 0 ? '#f0e8d8' : '#c0b8a8');
+      ctx.font = `${mine ? 'bold ' : ''}16px "Courier New", monospace`;
+      ctx.textAlign = 'left';
+      ctx.fillText((i + 1) + '.  ' + r.name, x0, y);
+      ctx.textAlign = 'right';
+      ctx.fillText('' + r.score, x1, y);
+      ctx.fillText((r.stage || 1) + '/' + BM_STAGES.length, x2, y);
+    }
+    ctx.textAlign = 'center';
+  }
+  ctx.globalAlpha = 0.6 + Math.sin(bmTime * 4) * 0.4;
+  bmCenterText(BM_TOUCH ? 'toca para volver' : 'pulsa cualquier tecla para volver', 14, H * 0.92, '#e8e0d0');
+  ctx.globalAlpha = 1;
 }
