@@ -121,6 +121,7 @@
 <div id="wrap"><canvas id="game" width="960" height="540"></canvas><input id="nameInput" maxlength="12" autocomplete="off" spellcheck="false" placeholder="TU NOMBRE"><textarea id="commentInput" maxlength="280" spellcheck="false" placeholder="tu comentario o sugerencia…"></textarea></div>
 <div id="rotate">📱⟳<br>Gira tu teléfono<br><span style="font-size:15px;color:#998">el duelo se juega en horizontal</span></div>
 <div id="footer">
+  <span id="beatLink" style="display:none"><a href="beat.html" style="color:#e8c050;font-weight:bold">⚔ KATANA RŌNIN · beat 'em up</a> &nbsp;·&nbsp; </span>
   un juego de <a href="https://igorv.org" target="_blank" rel="noopener">igorv.org</a>
   &nbsp;·&nbsp;
   <a class="dona" href="https://www.buda.com/link/arigatodon" target="_blank" rel="noopener">dona ❤ Buda</a>
@@ -146,6 +147,15 @@
 <script src="js/render.js"></script>   <!-- dibujo del combate, samuráis, escenarios, HUD -->
 <script src="js/escena.js"></script>   <!-- capas animadas de adorno por escenario (nubes, olas, koi…) -->
 <script src="js/ui.js"></script>       <!-- menús: título, virtudes, apuestas, firma, récords -->
+<script src="js/bonus.js"></script>    <!-- fase de bonus: corta las manzanas del mono (tras la 2ª pelea) -->
 <script src="js/main.js"></script>     <!-- bucle principal -->
+<script>
+  // revela el enlace al beat 'em up en cuanto el jugador desbloquea un yokai
+  (function () {
+    var el = document.getElementById('beatLink');
+    function check() { try { if (save && save.unlocked && save.unlocked.length > 0) el.style.display = ''; } catch (e) {} }
+    check(); setInterval(check, 1500);
+  })();
+</script>
 </body>
 </html>

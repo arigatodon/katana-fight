@@ -1,0 +1,36 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>KATANA RŌNIN — beat 'em up</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0c0a0c; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center;
+         font-family: "Courier New", monospace; }
+  #wrap { position: relative; }
+  canvas { display: block; image-rendering: auto; background: #1a1418;
+           box-shadow: 0 0 60px rgba(0,0,0,0.8);
+           width: min(100vw, calc(100vh * 16 / 9));
+           height: min(100vh, calc(100vw * 9 / 16)); }
+  #volver { position: fixed; top: 8px; left: 10px; z-index: 10;
+            color: #9a9486; text-decoration: none; font-size: 13px; opacity: .6; }
+  #volver:hover { opacity: 1; color: #e8c050; }
+</style>
+
+<a id="volver" href="index.html">← duelos</a>
+<div id="wrap"><canvas id="game" width="960" height="540"></canvas></div>
+
+<!-- núcleo reutilizado del duelo 1v1 (sin tocar su lógica) -->
+<script src="js/core.js"></script>     <!-- canvas, constantes, RNG, guardado -->
+<script src="js/audio.js"></script>    <!-- sonido sintetizado + música -->
+<script src="js/data.js"></script>     <!-- personajes (CHARS, SECRET_CHARS), escenarios -->
+<script src="js/fx.js"></script>       <!-- partículas, sangre, textos flotantes -->
+<script src="js/player.js"></script>   <!-- makePlayer, deriveAttrs, PSTATE -->
+<script src="js/render.js"></script>   <!-- drawSamurai + carga de piezas de arte -->
+
+<!-- spin-off beat 'em up -->
+<script src="js/bm_core.js"></script>   <!-- estado, etapas, oleadas, creación de luchadores -->
+<script src="js/bm_input.js"></script>  <!-- teclado (1 jugador) -->
+<script src="js/bm_combat.js"></script> <!-- golpes letales -->
+<script src="js/bm_ai.js"></script>     <!-- IA de los enemigos -->
+<script src="js/bm_update.js"></script> <!-- física, máquina de estados, cámara -->
+<script src="js/bm_render.js"></script> <!-- mundo con scroll, HUD, menús -->
+<script src="js/bm_main.js"></script>   <!-- bucle principal -->

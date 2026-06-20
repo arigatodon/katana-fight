@@ -301,6 +301,19 @@ const httpServer = http.createServer((req, res) => {
     });
     return;
   }
+  if (p === '/api/chars' && req.method === 'POST') {     // guarda chars.json (ficha de juego)
+    let body = '';
+    req.on('data', ch => { body += ch; if (body.length > 2_000_000) req.destroy(); });
+    req.on('end', () => {
+      try { JSON.parse(body); } catch (e) { res.writeHead(400, CORS_JSON); res.end('{"ok":false}'); return; }
+      try {
+        fs.writeFileSync(path.join(ROOT, 'chars.json'), body);
+        console.log(new Date().toISOString(), 'chars.json guardado por el editor de personajes');
+        res.writeHead(200, CORS_JSON); res.end('{"ok":true}');
+      } catch (e) { res.writeHead(500, CORS_JSON); res.end('{"ok":false}'); }
+    });
+    return;
+  }
   if (p === '/api/generar-parte' && req.method === 'POST') {   // genera UNA pieza con Nano Banana
     let body = '';
     req.on('data', ch => { body += ch; if (body.length > 8192) req.destroy(); });

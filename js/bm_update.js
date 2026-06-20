@@ -1,0 +1,212 @@
+'use strict';
+
+// ============================================================
+//  ACTUALIZACIÓN — física, máquina de estados, oleadas y cámara
+// ============================================================
+
+// avanza una máquina de estados de luchador (común a jugador y enemigos)
+function bmStepState(p, dt) {
+  if (p.state === PSTATE.DEAD) { p.deathT += dt; }
+  else {
+    p.stateTimer -= dt;
+    switch (p.state) {
+      case PSTATE.WINDUP:
+        if (p.stateTimer <= 0) { p.state = PSTATE.ATTACK; p.stateTimer = 0.13; p.hitDone = false; }
+        break;
+      case PSTATE.ATTACK:
+        if (p.stateTimer <= 0) { p.state = PSTATE.RECOVER; p.stateTimer = p.recover; }
+        break;
+      case PSTATE.RECOVER:
+      case PSTATE.HITSTUN:
+        if (p.stateTimer <= 0) { p.state = PSTATE.IDLE; }
+        break;
+    }
+  }
+  if (p.invT > 0) p.invT -= dt;
+}
+
+// física común (gravedad, suelo, rozamiento, animación de paso)
+function bmStepPhysics(p, dt) {
+  p.bob += dt * (p.onGround && Math.abs(p.vx) > 30 ? 14 : 6);
+
+  p.vy += BM_GRAV * dt;
+  p.y += p.vy * dt;
+  if (p.y >= GROUND) { p.y = GROUND; p.vy = 0; p.onGround = true; }
+  else p.onGround = false;
+
+  p.x += p.vx * dt;
+
+  // rozamiento: fuerte en el SUELO cuando no está en reposo (frena el empuje de
+  // golpes y muerte); en reposo la IA/entrada ya fija vx cada tic. EN EL AIRE no
+  // hay rozamiento → un golpe en salto conserva el impulso (tajo volador).
+  if (p.state !== PSTATE.IDLE && p.onGround) p.vx *= Math.pow(0.0015, dt);
+
+  // límites del mundo
+  const w = bmWorldW();
+  p.x = Math.max(20, Math.min(w - 20, p.x));
+}
+
+function bmUpdate(dt) {
+  bmTime += dt;
+  if (bmBannerT > 0) bmBannerT -= dt;
+  if (bmFlash > 0) bmFlash -= dt;
+  bmArrowPulse += dt;
+
+  if (bmScene !== 'play') return;
+
+  // ---- entrada del jugador ----
+  const pl = bmPlayer;
+  if (pl.slideCd > 0) pl.slideCd -= dt;
+  if (pl.slideT > 0 && pl.state === PSTATE.IDLE) {
+    // deslizamiento rápido en curso: impulso que decae, ignora el movimiento normal
+    pl.slideT -= dt;
+    pl.vx = pl.facing * BM_SLIDE_SPEED * Math.max(0.3, pl.slideT / BM_SLIDE_DUR);
+    if (Math.random() < 0.6) bmSlideDust(pl);
+  } else if (pl.state === PSTATE.IDLE && bmRespawnT <= 0) {
+    const dir = bmMoveDir();
+    if (dir !== 0) { pl.vx = dir * pl.speed; pl.facing = dir; }
+    else pl.vx = 0;
+  }
+  if (bmTouchAtk) { bmPlayerAttack(); bmTouchAtk = false; }
+  if (bmTouchJump) { bmPlayerJump(); bmTouchJump = false; }
+
+  // ---- estados + física ----
+  bmStepState(pl, dt);
+  bmStepPhysics(pl, dt);
+  for (const e of bmEnemies) {
+    bmUpdateAI(e, dt);
+    bmStepState(e, dt);
+    bmStepPhysics(e, dt);
+  }
+
+  // ---- golpes ----
+  bmResolveHits();
+
+  // ---- limpiar muertos (tras la animación de caída) ----
+  for (let i = bmEnemies.length - 1; i >= 0; i--) {
+    const e = bmEnemies[i];
+    if (e.state === PSTATE.DEAD && e.deathT > 1.2) bmEnemies.splice(i, 1);
+  }
+
+  // ---- respawn del jugador / game over ----
+  if (bmRespawnT > 0) {
+    bmRespawnT -= dt;
+    if (bmRespawnT <= 0) {
+      if (bmGameOverPending) { bmScene = 'gameover'; bmEndT = 1.2; if (typeof stopMusic === 'function') stopMusic(); }
+      else bmRespawnPlayer();
+    }
+  } else if (pl.state === PSTATE.DEAD && bmGameOverPending) {
+    // murió sin respawn programado (última vida): espera la animación
+    if (pl.deathT > 1.0) { bmScene = 'gameover'; bmEndT = 1.2; if (typeof stopMusic === 'function') stopMusic(); }
+  }
+
+  // ---- oleadas y avance ----
+  bmUpdateWaves();
+
+  // ---- cámara ----
+  // arena fija durante una oleada; libre (sigue al jugador) entre oleadas
+  if (bmWaveActive) bmCamX = bmCamMax;
+  else bmCamX = Math.max(0, Math.min(bmCamMax, pl.x - W * 0.42));
+
+  // efectos globales (slowmo, shake) reusan los timers del duelo
+  if (slowmoTimer > 0) { slowmoTimer -= dt; if (slowmoTimer <= 0) timeScale = 1; }
+  if (shake > 0) shake = Math.max(0, shake - dt * 60);
+
+  // partículas / textos / estelas (mismos arrays que el duelo)
+  bmStepFx(dt);
+}
+
+function bmRespawnPlayer() {
+  const pl = bmPlayer;
+  pl.state = PSTATE.IDLE;
+  pl.stateTimer = 0;
+  pl.deathT = 0;
+  pl.vida = VIDA_MAX;
+  pl.vx = 0; pl.vy = 0;
+  pl.invT = 2.0;
+  pl.y = GROUND; pl.onGround = true;
+  // reaparece en el borde izquierdo de la pantalla actual y empuja enemigos
+  pl.x = bmCamX + 90;
+  pl.facing = 1;
+}
+
+// dispara oleadas, bloquea la cámara y detecta etapa superada
+function bmUpdateWaves() {
+  const pl = bmPlayer;
+  if (!bmWaveActive) {
+    const wave = bmStage.waves[bmWaveIdx];
+    if (!wave) { bmStageClear(); return; }
+    if (pl.x >= wave.at * bmWorldW()) {
+      bmSpawnWave(wave);
+      bmWaveActive = true;
+      // bloquea la cámara en la pantalla actual
+      bmCamMax = Math.max(0, Math.min(bmWorldW() - W, pl.x - W * 0.42));
+    } else {
+      // entre oleadas: cámara libre hasta donde haya enemigos por venir
+      bmCamMax = bmWorldW() - W;
+    }
+  } else {
+    // oleada activa: ¿quedan vivos?
+    const alive = bmEnemies.some(e => e.state !== PSTATE.DEAD);
+    // arena bloqueada: el jugador queda confinado a esta pantalla
+    pl.x = Math.max(bmCamMax + 50, Math.min(bmCamMax + W - 60, pl.x));
+    if (!alive) {
+      bmWaveActive = false;
+      bmWaveIdx += 1;
+      if (bmWaveIdx >= bmStage.waves.length) { bmStageClear(); }
+      else { bmBanner = 'AVANZA'; bmBannerSub = '→'; bmBannerT = 1.4; }
+    }
+  }
+}
+
+function bmSpawnWave(wave) {
+  if (wave.boss) {
+    const boss = bmMakeFighter(bmStage.boss, bmCamX + W - 80, -1, true);
+    boss.x = Math.min(bmWorldW() - 40, bmCamX + W - 60);
+    bmEnemies.push(boss);
+    bmBanner = '¡JEFE!';
+    bmBannerSub = boss.char.name + '  ' + boss.char.kanji;
+    bmBannerT = 2.6;
+    sfxBreak && sfxBreak();
+    return;
+  }
+  const list = wave.enemies;
+  list.forEach((id, k) => {
+    // alterna lados: aparecen entrando por los bordes de la pantalla
+    const fromRight = k % 2 === 0;
+    const x = fromRight ? bmCamX + W + 30 + k * 26 : bmCamX - 30 - k * 26;
+    const f = fromRight ? -1 : 1;
+    bmEnemies.push(bmMakeFighter(id, Math.max(20, Math.min(bmWorldW() - 20, x)), f));
+  });
+}
+
+function bmStageClear() {
+  if (bmStageIdx + 1 >= BM_STAGES.length) {
+    bmScene = 'win';
+    bmEndT = 1.4;
+    if (typeof stopMusic === 'function') stopMusic();
+  } else {
+    bmScene = 'stageclear';
+    bmEndT = 2.6;
+  }
+}
+
+// avanza partículas, textos y estelas (idéntico al duelo, sin tocar 1v1)
+function bmStepFx(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.life -= dt;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+    if (p.gravity) p.vy += 900 * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+  }
+  for (let i = floaters.length - 1; i >= 0; i--) {
+    const f = floaters[i];
+    f.life -= dt; f.y -= 30 * dt;
+    if (f.life <= 0) floaters.splice(i, 1);
+  }
+  for (let i = slashTrails.length - 1; i >= 0; i--) {
+    slashTrails[i].life -= dt;
+    if (slashTrails[i].life <= 0) slashTrails.splice(i, 1);
+  }
+}

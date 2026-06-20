@@ -89,6 +89,30 @@ const SECRET_CHARS = [
 
 function allChars() { return CHARS.concat(SECRET_CHARS); }
 function charUnlocked(c) { return !c.secret || save.unlocked.includes(c.id); }
+
+// ── Personajes creados con el editor (chars.json) ─────────────────────────
+// Se fusionan en la baraja CHARS al cargar, igual que rigs.json con el arte.
+// data.js es síncrono y el fetch llega después; al llegar fusionamos y, si hay
+// ids nuevos, cargamos su arte. En online ambos clientes leen el mismo
+// chars.json del servidor, así que la baraja queda idéntica en los dos.
+function aplicarCharsExtra(lista) {
+  if (!Array.isArray(lista)) return;
+  const nuevos = [];
+  for (const c of lista) {
+    if (!c || !c.id || c.secret) continue;   // los secretos se definen en código
+    if (!c.pal) c.pal = pal('#cfd2d8', '#a0a4ac', '#4a4e58', '#2e323a', '#dfe3ea', '#dca87c', '#1a1a1e');
+    const i = CHARS.findIndex(x => x.id === c.id);
+    if (i >= 0) CHARS[i] = Object.assign({}, CHARS[i], c);   // editar uno existente
+    else { CHARS.push(c); nuevos.push(c.id); }               // o agregar uno nuevo
+  }
+  if (nuevos.length) {
+    if (typeof loadArt === 'function') loadArt(charImg, 'assets/chars/', nuevos);
+    if (typeof loadParts === 'function') loadParts(nuevos);
+  }
+}
+if (typeof fetch !== 'undefined') {
+  fetch('chars.json').then(r => r.ok ? r.json() : null).then(d => d && aplicarCharsExtra(d)).catch(() => {});
+}
 function randomFrom(arr) { return arr[Math.floor(rnd() * arr.length)]; }
 
 // ---------------- Destino del Duelo (condición aleatoria por ronda) ----------------

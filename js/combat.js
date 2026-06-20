@@ -20,7 +20,11 @@ function startFeint(p) {
   p.stats.feints++;
   sfxFeint();
   if (p.char.afterimage) {
-    p.afterimages.push({ x: p.x, y: p.y, facing: p.facing, life: 1.4, maxLife: 1.4, bob: p.bob });
+    // El Espectro se desdobla: dos señuelos casi sólidos a ambos flancos del
+    // cuerpo real, para que el rival no distinga cuál atacar. Determinista
+    // (sin Math.random) para no divergir en el online.
+    p.afterimages.push({ x: p.x - p.facing * 36, y: p.y, facing: p.facing, life: 1.2, maxLife: 1.2, bob: p.bob, aMax: 0.62 });
+    p.afterimages.push({ x: p.x + p.facing * 42, y: p.y, facing: p.facing, life: 1.2, maxLife: 1.2, bob: p.bob, aMax: 0.62 });
   }
 }
 

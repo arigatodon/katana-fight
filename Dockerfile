@@ -5,11 +5,11 @@ WORKDIR /app
 COPY server/package.json server/package-lock.json ./server/
 RUN cd server && npm ci --omit=dev
 
-COPY index.html og.png ./
+COPY index.html beat.html og.png ./
 COPY assets ./assets
 # datos del juego que el cliente carga en runtime (los producen los
 # editores locales, pero el juego los consume en producción)
-COPY escenas.json rigs.json ./
+COPY escenas.json rigs.json chars.json ./
 COPY js ./js
 COPY server/server.js ./server/
 # NOTA: los editores (rig_editor.html, escena_editor.html, tools/) y sus

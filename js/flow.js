@@ -284,7 +284,12 @@ function finishMatch() {
 
 // al salir de matchEnd: seguir el torneo o cerrar la partida
 function continueRun() {
-  if (run && !runOver) { nextFight(); return; }
+  if (run && !runOver) {
+    // fase de bonus una sola vez, tras ganar la 2ª pelea
+    if (run.fight === 2 && !run.bonusDone) { run.bonusDone = true; startBonus(); return; }
+    nextFight();
+    return;
+  }
   if (run) { enterApoyo(); return; }   // torneo terminado: gracias + donar/comentar
   scene = 'title';        // 2 jugadores
 }

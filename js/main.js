@@ -19,6 +19,7 @@ function draw(t) {
     case 'vs':      drawVS(t); break;
     case 'destino': drawDestinoScene(t); break;
     case 'apuesta': drawApuesta(t); break;
+    case 'bonus':   drawBonus(t); break;
     case 'apoyo':      drawApoyo(t); break;
     case 'comentario': drawComentario(t); break;
     case 'firma':   drawFirma(t); break;

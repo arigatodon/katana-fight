@@ -47,6 +47,11 @@
     <button id="reset" title="volver al rig base">restablecer</button>
     <span id="estado"></span>
   </div>
+  <div class="fila">
+    <label>Nuevo personaje</label>
+    <input type="text" id="nuevoId" placeholder="id (ej: melena)" style="flex:0 0 150px">
+    <button id="crearChar" title="crea un id nuevo: luego genera sus piezas y su ficha">crear</button>
+  </div>
 
   <h2>Piezas (combina partes de cualquier personaje)</h2>
   <div class="fila"><label>Torso + cabeza</label><select id="p_torso"></select></div>
@@ -70,6 +75,27 @@
     <div class="fila"><label>Descripción</label><input type="text" id="genDesc" style="flex:1" placeholder="(vacío = descripción del personaje)"></div>
     <div id="log">listo.</div>
   </div>
+
+  <div id="ficha">
+    <h2>Comportamiento (ficha de juego) — así actúa y se vuelve escogible</h2>
+    <div class="fila"><label>Nombre</label><input type="text" id="f_name" style="flex:1" placeholder="MELENA"></div>
+    <div class="fila"><label>Kanji</label><input type="text" id="f_kanji" style="flex:0 0 90px" placeholder="幽鬼"></div>
+    <div class="fila"><label>Descripción</label><input type="text" id="f_desc" style="flex:1" placeholder="qué lo hace especial"></div>
+    <div id="stats"></div>
+    <div class="fila" style="flex-wrap:wrap"><label>Habilidades</label>
+      <label><input type="checkbox" id="h_doubleJump"> doble salto</label>
+      <label><input type="checkbox" id="h_afterimage"> imágenes falsas</label>
+      <label><input type="checkbox" id="h_bounce"> rebota al caer</label>
+      <label><input type="checkbox" id="h_steal"> roba postura</label>
+      <label><input type="checkbox" id="h_slide"> embiste deslizando</label>
+    </div>
+    <div class="fila"><label>Tamaño</label><input type="range" id="f_scale" min="0.7" max="1.4" step="0.02"><span class="val" id="f_scaleV"></span></div>
+    <div class="fila">
+      <button id="saveFicha">GUARDAR FICHA</button>
+      <span id="estadoFicha"></span>
+      <span class="ayuda">se escribe en chars.json → el juego lo añade a la baraja</span>
+    </div>
+  </div>
 </div>
 <script>
 // RIG base — debe coincidir con js/render.js (más los offsets de arrastre)
@@ -80,6 +106,8 @@ const BASE = {
   torsoAnchorX: 0.5, torsoAnchorY: 1.0, lowerAnchorX: 0.5, lowerAnchorY: 0.04,
   legAnchorX: 0.5, legAnchorY: 0.06, armsAnchorX: 0.06, armsAnchorY: 0.28,
   torsoDX: 0, torsoDY: 0, armsDX: 0, armsDY: 0, lowerDX: 0, lowerDY: 0,
+  legBackDX: 0, legBackDY: 0, legFrontDX: 0, legFrontDY: 0,   // pierna trasera/delantera por separado
+  legBackRot: 0, legFrontRot: 0,                              // rotación por pierna (rad)
 };
 const DEFAULT_FULL = ['maestro', 'gigante', 'sapo', 'abuela'];
 const PUPPET_H = 240;
@@ -96,6 +124,8 @@ const SLIDERS = [
   ['lowerHFrac', 'alto del hakama', 0.3, 0.85, 0.005],
   ['legHFrac', 'alto de la pierna', 0.3, 0.8, 0.005],
   ['legSplitFrac', 'separación de piernas', 0, 0.15, 0.005],
+  ['legBackRot', 'rotación pierna trasera', -0.8, 0.8, 0.01],
+  ['legFrontRot', 'rotación pierna delantera', -0.8, 0.8, 0.01],
   ['seamOverlap', 'solape de la cintura', 0, 0.15, 0.005],
   ['legSwing', 'zancada al caminar', 0, 0.5, 0.01],
   ['lowerSway', 'mecida al caminar', 0, 0.2, 0.005],
@@ -106,8 +136,16 @@ const SLIDERS = [
   ['torsoAnchorY', 'pivote torso Y', 0, 1, 0.01],
 ];
 
+// ficha de juego: estadísticas ocultas (0-40) y habilidades
+const STATS = [
+  ['corte', 'corte (daño)'], ['postura', 'postura (defensa)'], ['agilidad', 'agilidad (velocidad)'],
+  ['engano', 'engaño (fintas)'], ['reflejos', 'reflejos (parry)'], ['espiritu', 'espíritu (aguante)'],
+];
+const HABILIDADES = ['doubleJump', 'afterimage', 'bounce', 'steal', 'slide'];
+
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 let rigData = {}, chars = {}, cur = null;
+let fichas = {};                     // id -> ficha de juego (chars.json)
 let R = Object.assign({}, BASE);
 let legMode = 'single';
 let partPaths = { torso: '', pierna: '', brazos: '' };
@@ -118,15 +156,27 @@ let boxes = [], sel = null;          // cajas de las piezas y la seleccionada
 async function init() {
   try { rigData = await (await fetch('rigs.json?_=' + Date.now())).json() || {}; } catch (e) { rigData = {}; }
   try { chars = await (await fetch('/api/parts')).json(); } catch (e) { chars = {}; }
+  try {
+    const arr = await (await fetch('chars.json?_=' + Date.now())).json();
+    if (Array.isArray(arr)) for (const c of arr) if (c && c.id) fichas[c.id] = c;
+  } catch (e) {}
   const sel0 = document.getElementById('char');
   Object.keys(chars).sort().forEach(id => sel0.add(new Option(id, id)));
   sel0.onchange = () => loadChar(sel0.value);
-  buildSliders(); buildPoses(); fillPartPickers();
+  buildSliders(); buildPoses(); buildStatSliders(); fillPartPickers();
   if (sel0.options.length) loadChar(sel0.options[0].value);
   requestAnimationFrame(loop);
 }
 
-// lista TODOS los archivos de pieza de TODOS los personajes (para combinar)
+// categoría de una pieza según su nombre de archivo: el prefijo antes del
+// primer '_' (torso, pierna, brazos). 'hakama' cuenta como pieza baja.
+function categoriaParte(ruta) {
+  const stem = ruta.split('/').pop().replace(/\.png$/i, '').split('_')[0];
+  return stem === 'hakama' ? 'pierna' : stem;
+}
+
+// combina piezas entre personajes, pero cada selector ofrece SOLO las de su
+// categoría (torso con torso, piernas con piernas…), nunca mezcladas.
 function fillPartPickers() {
   const all = [];
   for (const id of Object.keys(chars).sort())
@@ -134,7 +184,7 @@ function fillPartPickers() {
   for (const part of ['torso', 'pierna', 'brazos']) {
     const sel = document.getElementById('p_' + part);
     sel.innerHTML = '';
-    all.forEach(p => sel.add(new Option(p, p)));
+    all.filter(p => categoriaParte(p) === part).forEach(p => sel.add(new Option(p, p)));
     sel.onchange = () => { partPaths[part] = sel.value; loadImg(part); };
   }
 }
@@ -156,9 +206,48 @@ function loadChar(id) {
     loadImg(part);
   }
   syncSliders();
+  loadFicha(id);
 }
 function syncSliders() {
   for (const [k] of SLIDERS) { const el = document.getElementById('s_' + k); if (el) { el.value = R[k]; el.nextElementSibling.textContent = (+R[k]).toFixed(3); } }
+}
+
+// ── ficha de juego (comportamiento) ──────────────────────────────────────
+function buildStatSliders() {
+  const box = document.getElementById('stats');
+  for (const [k, lbl] of STATS) {
+    const row = document.createElement('div'); row.className = 'fila';
+    row.innerHTML = `<label>${lbl}</label><input type="range" id="st_${k}" min="0" max="40" step="1"><span class="val" id="st_${k}V"></span>`;
+    box.appendChild(row);
+    const inp = row.querySelector('input');
+    inp.oninput = () => document.getElementById('st_' + k + 'V').textContent = inp.value;
+  }
+}
+function loadFicha(id) {
+  const f = fichas[id] || {};
+  const s = f.stats || {};
+  document.getElementById('f_name').value = f.name || id.toUpperCase();
+  document.getElementById('f_kanji').value = f.kanji || '';
+  document.getElementById('f_desc').value = f.desc || '';
+  for (const [k] of STATS) {
+    const v = s[k] != null ? s[k] : 20;
+    document.getElementById('st_' + k).value = v;
+    document.getElementById('st_' + k + 'V').textContent = v;
+  }
+  for (const h of HABILIDADES) document.getElementById('h_' + h).checked = !!f[h];
+  const sc = f.scale || 1;
+  document.getElementById('f_scale').value = sc;
+  document.getElementById('f_scaleV').textContent = (+sc).toFixed(2);
+}
+function fichaActual() {
+  const f = { id: cur, name: document.getElementById('f_name').value.trim() || cur.toUpperCase() };
+  const kj = document.getElementById('f_kanji').value.trim(); if (kj) f.kanji = kj;
+  const ds = document.getElementById('f_desc').value.trim(); if (ds) f.desc = ds;
+  f.stats = {};
+  for (const [k] of STATS) f.stats[k] = +document.getElementById('st_' + k).value;
+  for (const h of HABILIDADES) if (document.getElementById('h_' + h).checked) f[h] = true;
+  const sc = +document.getElementById('f_scale').value; if (Math.abs(sc - 1) > 1e-6) f.scale = +sc.toFixed(2);
+  return f;
 }
 
 function flat(o) {
@@ -239,8 +328,9 @@ function render(time) {
     part('pierna', imgs.pierna, R.lowerAnchorX, R.lowerAnchorY, ldx, hipY + wbob - seam + ldy, R.lowerHFrac * H + seam, null, sway, ox, oy, f);
   } else {
     const sw = walking ? phase * R.legSwing : 0.05, legH = R.legHFrac * H + seam, split = R.legSplitFrac * H;
-    part('pierna', imgs.pierna, R.legAnchorX, R.legAnchorY, -split + ldx, hipY - seam + ldy, legH, null, -sw, ox, oy, f);
-    part('pierna', imgs.pierna, R.legAnchorX, R.legAnchorY, split + ldx, hipY - seam + ldy, legH, null, sw, ox, oy, f);
+    const bdx = (R.legBackDX || 0) * H, bdy = (R.legBackDY || 0) * H, fdx = (R.legFrontDX || 0) * H, fdy = (R.legFrontDY || 0) * H;
+    part('pierna_tras', imgs.pierna, R.legAnchorX, R.legAnchorY, -split + ldx + bdx, hipY - seam + ldy + bdy, legH, null, -sw + (R.legBackRot || 0), ox, oy, f);
+    part('pierna_del', imgs.pierna, R.legAnchorX, R.legAnchorY, split + ldx + fdx, hipY - seam + ldy + fdy, legH, null, sw + (R.legFrontRot || 0), ox, oy, f);
   }
   part('torso', imgs.torso, R.torsoAnchorX, R.torsoAnchorY, tdx, hipY + bob + wbob + tdy, R.torsoHFrac * H, null, lean, ox, oy, f);
   part('brazos', imgs.brazos, R.armsAnchorX, R.armsAnchorY, R.shoulderXFrac * H + adx, shY + bob + wbob + ady, null, R.armsWFrac * H, armRot, ox, oy, f);
@@ -252,7 +342,7 @@ function loop(time) { render(time); requestAnimationFrame(loop); }
 let dragging = false, lastX = 0, lastY = 0;
 function pick(mx, my) {
   // prioridad: brazos > torso > pierna (los de delante primero)
-  const orden = ['brazos', 'torso', 'pierna'];
+  const orden = ['brazos', 'torso', 'pierna_del', 'pierna_tras', 'pierna'];
   let best = null, bestRank = 99;
   for (const b of boxes) {
     if (mx >= b.x0 && mx <= b.x1 && my >= b.y0 && my <= b.y1) {
@@ -278,6 +368,8 @@ window.addEventListener('mousemove', e => {
   lastX = mx; lastY = my;
   if (sel === 'brazos') { R.shoulderXFrac += dlx; R.armsDY += dly; }   // x sobre el hombro, y libre
   else if (sel === 'torso') { R.torsoDX += dlx; R.torsoDY += dly; }
+  else if (sel === 'pierna_tras') { R.legBackDX += dlx; R.legBackDY += dly; }   // cada pierna por separado
+  else if (sel === 'pierna_del') { R.legFrontDX += dlx; R.legFrontDY += dly; }
   else if (sel === 'pierna') { R.lowerDX += dlx; R.lowerDY += dly; }
   syncSliders();
 });
@@ -287,10 +379,10 @@ cv.addEventListener('wheel', e => {
   const k = e.deltaY < 0 ? 1.04 : 1 / 1.04;
   if (sel === 'brazos') R.armsWFrac *= k;
   else if (sel === 'torso') R.torsoHFrac *= k;
-  else if (sel === 'pierna') { R.legHFrac *= k; R.lowerHFrac *= k; }
+  else if (sel === 'pierna' || sel === 'pierna_tras' || sel === 'pierna_del') { R.legHFrac *= k; R.lowerHFrac *= k; }
   syncSliders();
 }, { passive: false });
-function nombreParte(n) { return { torso: 'torso + cabeza', pierna: 'pierna / hakama', brazos: 'brazos + katana' }[n] || n; }
+function nombreParte(n) { return { torso: 'torso + cabeza', pierna: 'pierna / hakama', pierna_tras: 'pierna trasera', pierna_del: 'pierna delantera', brazos: 'brazos + katana' }[n] || n; }
 
 // ─── botones ───
 document.getElementById('save').onclick = async () => {
@@ -300,7 +392,20 @@ document.getElementById('save').onclick = async () => {
   catch (e) { st.textContent = '✖ sin servidor'; }
   setTimeout(() => st.textContent = '', 2500);
 };
-document.getElementById('reset').onclick = () => { R = Object.assign({}, BASE); legMode = DEFAULT_FULL.includes(cur) ? 'full' : 'single'; document.getElementById('legMode').value = legMode; syncSliders(); };
+document.getElementById('reset').onclick = () => {
+  R = Object.assign({}, BASE);
+  legMode = DEFAULT_FULL.includes(cur) ? 'full' : 'single';
+  document.getElementById('legMode').value = legMode;
+  // restaura también las piezas propias del personaje: deshace combinaciones
+  // entre personajes y deselecciona una pieza generada/elegida a mano.
+  for (const part of ['torso', 'pierna', 'brazos']) {
+    partPaths[part] = cur + '/' + part + '.png';
+    const el = document.getElementById('p_' + part);
+    if ([...el.options].some(o => o.value === partPaths[part])) el.value = partPaths[part];
+    loadImg(part);
+  }
+  syncSliders();
+};
 document.getElementById('genBtn').onclick = async () => {
   const log = document.getElementById('log'), partN = document.getElementById('genPart').value;
   log.textContent = 'generando ' + partN + ' de ' + cur + '… (~30 s)';
@@ -315,6 +420,30 @@ document.getElementById('genBtn').onclick = async () => {
       loadImg(partN);
     }
   } catch (e) { log.textContent = '✖ sin servidor (corre: cd server && npm start)'; }
+};
+
+// tamaño: actualizar el número en vivo
+document.getElementById('f_scale').oninput = e => document.getElementById('f_scaleV').textContent = (+e.target.value).toFixed(2);
+
+// crear un personaje nuevo: añade el id al desplegable y lo selecciona; luego
+// se le generan piezas (genera) y se guarda su ficha.
+document.getElementById('crearChar').onclick = () => {
+  const id = document.getElementById('nuevoId').value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  if (!id) return;
+  const sel0 = document.getElementById('char');
+  if (![...sel0.options].some(o => o.value === id)) sel0.add(new Option(id, id));
+  sel0.value = id;
+  document.getElementById('nuevoId').value = '';
+  loadChar(id);
+};
+
+// guardar la ficha de juego en chars.json (lo que hace al personaje escogible)
+document.getElementById('saveFicha').onclick = async () => {
+  fichas[cur] = fichaActual();
+  const st = document.getElementById('estadoFicha');
+  try { st.textContent = (await (await fetch('/api/chars', { method: 'POST', body: JSON.stringify(Object.values(fichas)) })).json()).ok ? '✔ guardada (recarga el juego)' : '✖ error'; }
+  catch (e) { st.textContent = '✖ sin servidor'; }
+  setTimeout(() => st.textContent = '', 3000);
 };
 
 init();

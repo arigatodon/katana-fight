@@ -1,0 +1,11 @@
+[
+  {
+    "id": "melena",
+    "name": "MELENA",
+    "kanji": "幽鬼",
+    "desc": "Espíritu vengativo: roba la calma del rival al golpear",
+    "stats": { "corte": 18, "postura": 14, "agilidad": 24, "engano": 28, "reflejos": 24, "espiritu": 22 },
+    "steal": true,
+    "pal": { "kimono": "#cfd2d8", "kimonoDark": "#a0a4ac", "hakama": "#4a4e58", "hakamaDark": "#2e323a", "obi": "#3a2a22", "accent": "#b0c0d0", "skin": "#dcd0c0", "hair": "#14141a" }
+  }
+]

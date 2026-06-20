@@ -278,6 +278,8 @@ function handleMenus() {
       if (code === 'KeyW' || code === 'ArrowUp')   { menuSel = (menuSel + TITLE_OPTS.length - 1) % TITLE_OPTS.length; sfxSelect(); }
       if (code === 'KeyS' || code === 'ArrowDown') { menuSel = (menuSel + 1) % TITLE_OPTS.length; sfxSelect(); }
       if (code === 'Enter' || code === 'Space') titleChoose(menuSel);
+      // tecla B: entra al spin-off beat 'em up (solo si ya desbloqueaste un yokai)
+      if (code === 'KeyB' && save.unlocked.length > 0) { sfxConfirm(); location.href = 'beat.html'; }
       checkCheat(code);   // escribir "SECRETO" desbloquea todos los personajes
     } else if (scene === 'opciones') {
       if (code === 'KeyW' || code === 'ArrowUp')   { optsSel = (optsSel + OPTS_OPTS.length - 1) % OPTS_OPTS.length; sfxSelect(); }
@@ -361,6 +363,10 @@ function handleMenus() {
       if (tp.y < 34) {        // enlaces de las esquinas superiores
         if (tp.x < 120) { window.open(LINK_HOME, '_blank'); continue; }
         if (tp.x > W - 120) { window.open(LINK_DONA, '_blank'); continue; }
+      }
+      // link del beat 'em up (revelado al desbloquear un yokai)
+      if (save.unlocked.length > 0 && Math.abs(tp.y - H * 0.90) < 18 && Math.abs(tp.x - W / 2) < 240) {
+        sfxConfirm(); location.href = 'beat.html'; continue;
       }
       for (let i = 0; i < TITLE_OPTS.length; i++) {
         if (Math.abs(tp.y - (H * 0.50 + i * 40)) < 18) {
@@ -542,6 +548,18 @@ function drawTitle(t) {
       ctx.fillText(txt, W * 0.71, H * 0.50 + onlineI * 40);
       ctx.restore();
     }
+  }
+
+  // modo beat 'em up: se revela al vencer a cualquier yokai (clic o tecla B)
+  if (save.unlocked.length > 0) {
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 15px "Courier New", monospace';
+    ctx.globalAlpha = 0.6 + Math.sin(t * 4) * 0.4;
+    ctx.fillStyle = '#e8c050';
+    ctx.shadowColor = '#b03030'; ctx.shadowBlur = 12;
+    ctx.fillText("⚔ KATANA RŌNIN · beat 'em up — pulsa B ⚔", W / 2, H * 0.90);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
   }
 
   ctx.textAlign = 'center';

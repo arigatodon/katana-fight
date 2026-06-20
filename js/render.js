@@ -60,6 +60,10 @@ const RIG = {
   lowerHFrac: 0.56,     // alto de la parte baja completa (hakama, cadera→pies)
   legHFrac: 0.54,       // alto de una pierna suelta (cadera→pie)
   legSplitFrac: 0.05,   // separación delante/atrás de las dos piernas
+  // ajuste fino por pierna (sobre el ±split): permite acomodar la trasera y la
+  // delantera por separado desde el editor. DX/DY en fracción de H; Rot en rad.
+  legBackDX: 0, legBackDY: 0, legFrontDX: 0, legFrontDY: 0,
+  legBackRot: 0, legFrontRot: 0,
   legSwing: 0.26,       // zancada de las piernas sueltas al caminar (rad)
   lowerSway: 0.06,      // mecida de la parte baja completa al caminar (rad)
   walkBob: 2.5,         // sube/baja al caminar (px)
@@ -190,8 +194,10 @@ function drawOrigami(p, ghostAlpha, rec) {
   } else {
     const sw = walking ? phase * R.legSwing : 0.05;
     const legH = R.legHFrac * H + seam, split = R.legSplitFrac * H;
-    drawPart(rec.pierna, R.legAnchor, -split + ldx, hipY - seam + ldy, legH, null, -sw);   // trasera
-    drawPart(rec.pierna, R.legAnchor,  split + ldx, hipY - seam + ldy, legH, null,  sw);   // delantera
+    const bdx = (R.legBackDX || 0) * H, bdy = (R.legBackDY || 0) * H;
+    const fdx = (R.legFrontDX || 0) * H, fdy = (R.legFrontDY || 0) * H;
+    drawPart(rec.pierna, R.legAnchor, -split + ldx + bdx, hipY - seam + ldy + bdy, legH, null, -sw + (R.legBackRot || 0));   // trasera
+    drawPart(rec.pierna, R.legAnchor,  split + ldx + fdx, hipY - seam + ldy + fdy, legH, null,  sw + (R.legFrontRot || 0));  // delantera
   }
   // 2) torso + cabeza: pivota en la cintura, se inclina (rotación en local)
   drawPart(rec.torso, R.torsoAnchor, tdx, hipY + bob + wbob + tdy, R.torsoHFrac * H, null, lean);
@@ -866,7 +872,7 @@ function drawSamurai(p, ghostAlpha) {
         x: ai.x, y: ai.y, facing: ai.facing, state: PSTATE.IDLE,
         bob: ai.bob, afterimages: [],
       });
-      drawSamurai(fake, 0.35 * (ai.life / ai.maxLife));
+      drawSamurai(fake, (ai.aMax || 0.62) * Math.min(1, (ai.life / ai.maxLife) * 1.8));
     }
     return;
   }

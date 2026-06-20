@@ -184,6 +184,14 @@ function updatePlayer(p, foe, isP1, dt) {
     p.postura = Math.min(p.posMax, p.postura + p.posRegen * dt);
   }
 
+  // rastro fantasma del Espectro: deja copias tenues mientras se desplaza,
+  // para que cueste fijar dónde está el cuerpo real. Es visual (no entra en el
+  // hash de determinismo), así que usa Math.random como las partículas.
+  if (p.char.afterimage && p.onGround && Math.abs(p.vx) > 50 &&
+      p.state !== PSTATE.DEAD && p.afterimages.length < 14 && Math.random() < 0.55) {
+    p.afterimages.push({ x: p.x, y: p.y, facing: p.facing, life: 0.4, maxLife: 0.4, bob: p.bob, aMax: 0.3 });
+  }
+
   // rastro eléctrico (rasgo trueno)
   if (p.rasgo && p.rasgo.id === 'trueno' && Math.abs(p.vx) > 60 && Math.random() < 0.3) {
     particles.push({
@@ -296,6 +304,10 @@ function update(dt) {
   }
   if (scene === 'apuesta') {
     updateApuesta(dt);
+    return;
+  }
+  if (scene === 'bonus') {
+    updateBonus(sdt);
     return;
   }
   if (!['fight', 'roundEnd', 'matchEnd'].includes(scene)) return;

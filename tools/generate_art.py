@@ -124,8 +124,10 @@ PART_COMMON = (
 PART_PROMPTS = {
     'torso': (
         'Draw ONLY the TORSO piece of {desc}: the chest and belly wearing the '
-        'kimono, WITH the head and face on top (hair/topknot and headband) and '
-        'the waist/hips at the bottom. Vertical orientation. '
+        'kimono with BROAD kimono shoulders that fully cover the shoulder area '
+        '(so detached arms can tuck underneath without a visible seam), WITH the '
+        'head and face on top (hairstyle and any headwear exactly as described in '
+        'the character) and the waist/hips at the bottom. Vertical orientation. '
         'ABSOLUTELY NO arms, NO hands, NO legs, NO sword.'
     ),
     'pierna': (
@@ -138,13 +140,16 @@ PART_PROMPTS = {
         'legs, NO torso, NO arms, NO head, NO sword. Surrounded entirely by magenta.'
     ),
     'brazos': (
-        'Draw a DETACHED pair of arms only, like a doll accessory floating in '
-        'empty space: two kimono sleeves and two hands gripping a katana with a '
-        'two-handed grip, cut cleanly at the shoulder sockets on the LEFT, the '
-        'katana blade extending to the RIGHT roughly horizontal. '
-        'CRITICAL: there is NO chest, NO torso, NO body, NO neck, NO head, NO '
-        'legs between or behind the arms — ONLY the two floating arms and the '
-        'sword, surrounded entirely by magenta.'
+        'Draw a DETACHED pair of slim arms only, like a doll accessory floating '
+        'in empty space: two thin arms with a CLOSE-FITTING tight under-sleeve '
+        '(NO wide bulky kimono sleeves, NO loose hanging fabric) and two hands '
+        'gripping a katana with a two-handed grip, cut cleanly at the shoulder '
+        'sockets on the LEFT with NARROW shoulder ends (small, so they tuck under '
+        'the torso piece), the katana blade extending to the RIGHT roughly '
+        'horizontal. '
+        'CRITICAL: NO wide kimono sleeves, NO chest, NO torso, NO body, NO neck, '
+        'NO head, NO legs between or behind the arms — ONLY the two slim floating '
+        'arms and the sword, surrounded entirely by magenta.'
     ),
 }
 
