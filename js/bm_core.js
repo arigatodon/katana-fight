@@ -37,6 +37,10 @@ let bmFlash = 0;            // destello blanco (muerte / corte)
 let bmBossDown = false;     // jefe abatido: mana sangre y hay que AVANZAR a pie
 let bmFallenBoss = null;    // el jefe caído (origen del chorro de sangre)
 let bmStains = [];          // manchas rojas que quedan en el suelo (persistentes)
+let bmHazards = [];         // peligros: onda del kappa, embestida, aplastón, etc.
+let bmAmbient = [];         // adornos animados del escenario (aves, pétalos, nieve)
+// combos: racha de muertes seguidas → multiplicador de puntaje
+let bmCombo = 0, bmComboT = 0, bmMult = 1, bmComboBest = 0;
 let bmEndT = 0;            // temporizador de pantallas de fin
 let bmArrowPulse = 0;      // flecha "avanza →"
 
@@ -107,8 +111,11 @@ function bmMakeFighter(id, x, facing, isBoss) {
   p.maxHp = p.hp;
   p.invT = 0;
   p.atkCd = 0.5 + Math.random() * 1.1;
+  p.spCd = 2.5 + Math.random() * 2;   // enfriamiento del ataque firma (jefes)
   p.hitDone = false;
   p.attackThrust = false;
+  p.unblockable = (ch.id === 'gigante');   // su golpe no se puede parar
+  p.airAtk = false;
   // ritmo de beat'em up: enemigos algo más lentos que en el duelo
   p.speed *= isBoss ? 0.42 : 0.62;
   p.windup = Math.max(0.26, p.windup) * (isBoss ? 1.15 : 1);  // telégrafo visible
@@ -127,6 +134,9 @@ function bmPlayablePlayer(charId) {
   p.attackThrust = false;
   p.slideT = 0;             // deslizamiento rápido (dash) en curso
   p.slideCd = 0;            // enfriamiento del deslizamiento
+  p.parryT = 0;             // ventana de parada/contraataque
+  p.parryCd = 0;
+  p.parriedKill = false;    // marca para el contragolpe del parry
   p.speed *= 0.92;
   return p;
 }
@@ -156,6 +166,9 @@ function bmLoadStage(i) {
   bmBossDown = false;
   bmFallenBoss = null;
   bmStains = [];
+  bmHazards = [];
+  bmCombo = 0; bmComboT = 0; bmMult = 1;
+  bmInitAmbient(bmStage.id);
   particles.length = 0;
   floaters.length = 0;
   slashTrails.length = 0;

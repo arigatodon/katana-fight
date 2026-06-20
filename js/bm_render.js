@@ -19,6 +19,71 @@ function bmLoadBg(id) {
   bmBg[id] = o;
 }
 
+// ---------------- ambiente animado del escenario ----------------
+function bmInitAmbient(id) {
+  bmAmbient = [];
+  if (id === 'monte') {
+    for (let i = 0; i < 80; i++) bmAmbient.push({ k: 'snow', x: Math.random() * W, y: Math.random() * H, vy: 30 + Math.random() * 45, sway: Math.random() * 6.28, r: 1 + Math.random() * 2.4 });
+  } else if (id === 'bambu') {
+    for (let i = 0; i < 24; i++) bmAmbient.push({ k: 'leaf', x: Math.random() * W, y: Math.random() * H, vy: 16 + Math.random() * 22, sway: Math.random() * 6.28, r: 2 + Math.random() * 2 });
+  }
+  const nBirds = id === 'costa' ? 6 : id === 'monte' ? 0 : 3;   // aves cruzando el cielo
+  for (let i = 0; i < nBirds; i++) {
+    bmAmbient.push({ k: 'bird', x: Math.random() * W, y: 24 + Math.random() * 150, vx: (Math.random() < 0.5 ? -1 : 1) * (26 + Math.random() * 34), flap: Math.random() * 6.28, s: 5 + Math.random() * 5 });
+  }
+}
+
+function bmStepAmbient(dt) {
+  for (const a of bmAmbient) {
+    if (a.k === 'snow' || a.k === 'leaf') {
+      a.sway += dt * 2; a.y += a.vy * dt;
+      a.x += Math.sin(a.sway) * (a.k === 'leaf' ? 22 : 9) * dt;
+      if (a.y > H + 6) { a.y = -6; a.x = Math.random() * W; }
+    } else if (a.k === 'bird') {
+      a.x += a.vx * dt; a.flap += dt * 8;
+      if (a.vx > 0 && a.x > W + 24) a.x = -24;
+      if (a.vx < 0 && a.x < -24) a.x = W + 24;
+    }
+  }
+}
+
+// se dibuja dentro del translate de cámara; +camX las fija al cielo (parallax 0)
+function bmDrawAmbient(camX) {
+  for (const a of bmAmbient) {
+    const x = a.x + camX;
+    if (a.k === 'snow') {
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.beginPath(); ctx.arc(x, a.y, a.r, 0, 6.29); ctx.fill();
+    } else if (a.k === 'leaf') {
+      ctx.fillStyle = 'rgba(110,150,64,0.7)';
+      ctx.beginPath(); ctx.ellipse(x, a.y, a.r * 1.6, a.r * 0.7, a.sway, 0, 6.29); ctx.fill();
+    } else if (a.k === 'bird') {
+      const w = Math.sin(a.flap) * 0.5 + 0.5;
+      ctx.strokeStyle = 'rgba(28,28,38,0.65)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x - a.s, a.y + w * a.s * 0.5);
+      ctx.lineTo(x, a.y - w * a.s * 0.35);
+      ctx.lineTo(x + a.s, a.y + w * a.s * 0.5);
+      ctx.stroke();
+    }
+  }
+}
+
+// peligros de jefe: onda de choque, aoe de picada
+function bmDrawHazards() {
+  for (const h of bmHazards) {
+    const a = Math.max(0, h.life / h.maxLife);
+    if (h.kind === 'shock') {
+      ctx.strokeStyle = `rgba(200,160,80,${a * 0.8})`;
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.ellipse(h.x, GROUND - 6, h.r, h.r * 0.4, 0, Math.PI, Math.PI * 2); ctx.stroke();
+    } else if (h.kind === 'aoe') {
+      ctx.fillStyle = `rgba(230,90,60,${a * 0.45})`;
+      ctx.beginPath(); ctx.ellipse(h.x, GROUND - 4, h.r, h.r * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+}
+
 function bmDraw() {
   ctx.clearRect(0, 0, W, H);
   if (bmScene === 'title') return bmDrawTitle();
@@ -57,6 +122,9 @@ function bmDrawWorld() {
 
   bmDrawBg();
 
+  // adornos animados del cielo (aves) detrás de la acción
+  bmDrawAmbient(Math.round(bmCamX));
+
   // manchas de sangre acumuladas en el suelo (jefe abatido)
   for (const s of bmStains) {
     ctx.fillStyle = s.c;
@@ -64,6 +132,9 @@ function bmDrawWorld() {
     ctx.ellipse(s.x, s.y, s.r, s.r * 0.5, 0, 0, Math.PI * 2);
     ctx.fill();
   }
+
+  // peligros de jefe (ondas, aplastón) sobre el suelo
+  bmDrawHazards();
 
   // estelas de corte (mundo)
   for (const s of slashTrails) {
@@ -153,6 +224,22 @@ function bmDrawHud() {
   ctx.textAlign = 'right';
   ctx.fillText('武 ' + bmScore, W - 16, 30);
   ctx.textAlign = 'left';
+
+  // combo: racha de muertes + multiplicador
+  if (bmCombo >= 2) {
+    const a = Math.min(1, bmComboT / 0.6);             // se desvanece al expirar
+    const pop = 1 + Math.max(0, bmComboT - 3.0) * 0.6; // brinco al sumar
+    ctx.save();
+    ctx.textAlign = 'right';
+    ctx.globalAlpha = 0.55 + 0.45 * a;
+    ctx.fillStyle = bmMult >= 2.5 ? '#e8404a' : '#e8c050';
+    ctx.font = `bold ${Math.round(20 * pop)}px "Courier New", monospace`;
+    ctx.fillText(bmCombo + '  COMBO', W - 16, 54);
+    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.fillText('x' + bmMult.toFixed(1), W - 16, 72);
+    ctx.restore();
+    ctx.textAlign = 'left';
+  }
 
   // nombre de etapa
   ctx.fillStyle = 'rgba(232,224,208,0.8)';
@@ -275,12 +362,13 @@ function bmDrawTitle() {
   bmCenterText(BM_TOUCH ? 'TOCA LA PANTALLA PARA EMPEZAR' : 'PULSA  F  /  ENTER  PARA EMPEZAR', 18, H * 0.62, '#e8e0d0');
   ctx.globalAlpha = 1;
   if (BM_TOUCH) {
-    bmCenterText('botones en pantalla: ◀ ▶ mover · ▲ saltar · 斬 cortar · » deslizar', 13, H * 0.79, '#9a9486');
+    bmCenterText('◀ ▶ mover · ▲ saltar · 斬 cortar · » deslizar · 受 parar', 13, H * 0.79, '#9a9486');
   } else {
-    bmCenterText('← →  mover     W / ↑  saltar     F  cortar', 14, H * 0.76, '#9a9486');
-    bmCenterText('doble ← / →  ó  SHIFT  ·  deslizamiento rápido (esquiva)', 14, H * 0.82, '#9a9486');
+    bmCenterText('← →  mover     W / ↑  saltar     F  cortar', 14, H * 0.75, '#9a9486');
+    bmCenterText('SHIFT (ó doble ← / →) deslizar/esquivar     K / L  parar', 14, H * 0.81, '#9a9486');
+    bmCenterText('parar un golpe a tiempo te salva y abre al rival', 13, H * 0.87, '#8a8478');
   }
-  bmCenterText('un golpe mata — avanza y derrota al yokai de cada etapa', 13, H * 0.88, '#8a8478');
+  bmCenterText('un golpe mata — avanza y derrota al yokai de cada etapa', 13, H * 0.94, '#8a8478');
 }
 
 function bmDrawChoose() {

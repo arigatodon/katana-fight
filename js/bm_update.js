@@ -11,10 +11,16 @@ function bmStepState(p, dt) {
     p.stateTimer -= dt;
     switch (p.state) {
       case PSTATE.WINDUP:
-        if (p.stateTimer <= 0) { p.state = PSTATE.ATTACK; p.stateTimer = 0.13; p.hitDone = false; }
+        if (p.stateTimer <= 0) {
+          if (p.feinting) { p.feinting = false; p.state = PSTATE.IDLE; }   // finta: amaga y cancela
+          else { p.state = PSTATE.ATTACK; p.stateTimer = 0.13; p.hitDone = false; }
+        }
         break;
       case PSTATE.ATTACK:
         if (p.stateTimer <= 0) { p.state = PSTATE.RECOVER; p.stateTimer = p.recover; }
+        break;
+      case PSTATE.GUARD:
+        if (p.stateTimer <= 0) { p.state = PSTATE.IDLE; p.guardCounter = false; }
         break;
       case PSTATE.RECOVER:
       case PSTATE.HITSTUN:
@@ -23,6 +29,15 @@ function bmStepState(p, dt) {
     }
   }
   if (p.invT > 0) p.invT -= dt;
+  if (p.parryT > 0) p.parryT -= dt;
+  if (p.parryCd > 0) p.parryCd -= dt;
+  // decaimiento de imágenes falsas (espectro / señuelos del tanuki)
+  if (p.afterimages && p.afterimages.length) {
+    for (let i = p.afterimages.length - 1; i >= 0; i--) {
+      p.afterimages[i].life -= dt;
+      if (p.afterimages[i].life <= 0) p.afterimages.splice(i, 1);
+    }
+  }
 }
 
 // física común (gravedad, suelo, rozamiento, animación de paso)
@@ -70,6 +85,7 @@ function bmUpdate(dt) {
   if (bmTouchAtk) { bmPlayerAttack(); bmTouchAtk = false; }
   if (bmTouchJump) { bmPlayerJump(); bmTouchJump = false; }
   if (bmTouchDash) { bmPlayerSlide(bmMoveDir() || pl.facing); bmTouchDash = false; }
+  if (bmTouchParry) { bmPlayerParry(); bmTouchParry = false; }
 
   // ---- estados + física ----
   bmStepState(pl, dt);
@@ -77,11 +93,17 @@ function bmUpdate(dt) {
   for (const e of bmEnemies) {
     bmUpdateAI(e, dt);
     bmStepState(e, dt);
+    const wasAir = !e.onGround;
     bmStepPhysics(e, dt);
+    if (e.special && wasAir && e.onGround) bmBossLand(e);   // picada/aplastón aterriza
   }
 
-  // ---- golpes ----
+  // ---- golpes / peligros ----
   bmResolveHits();
+  bmStepHazards(dt);
+
+  // ---- combo: decae si pasa el tiempo sin matar ----
+  if (bmComboT > 0) { bmComboT -= dt; if (bmComboT <= 0) { bmCombo = 0; bmMult = 1; } }
 
   // ---- limpiar muertos (tras la animación de caída) ----
   // el JEFE caído NO se borra: queda en el suelo manando sangre.
@@ -119,6 +141,24 @@ function bmUpdate(dt) {
 
   // partículas / textos / estelas (mismos arrays que el duelo)
   bmStepFx(dt);
+  bmStepAmbient(dt);
+}
+
+// peligros de jefe (onda del kappa, picada del tengu, aplastón): mueven, crecen
+// y matan al jugador. La ONDA se salta (solo golpea si estás en el suelo).
+function bmStepHazards(dt) {
+  const pl = bmPlayer;
+  for (let i = bmHazards.length - 1; i >= 0; i--) {
+    const h = bmHazards[i];
+    h.life -= dt;
+    h.x += h.vx * dt;
+    if (h.grow) h.r += h.grow * dt;
+    if (h.life <= 0) { bmHazards.splice(i, 1); continue; }
+    if (!pl || pl.state === PSTATE.DEAD || pl.invT > 0 || pl.parryT > 0) continue;
+    const cerca = Math.abs(pl.x - h.x) < h.r;
+    const alcanza = h.kind === 'shock' ? pl.onGround : true;   // la onda se esquiva saltando
+    if (cerca && alcanza) { bmHitPlayerByHazard(h); break; }
+  }
 }
 
 function bmRespawnPlayer() {

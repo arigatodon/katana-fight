@@ -76,6 +76,21 @@ function bmBleed(boss) {
   }
 }
 
+// ---- peligros de jefe (ondas, aplastones, picadas) ----
+function bmSpawnShock(x, dir, speed) {
+  bmHazards.push({ x: x, y: GROUND, vx: dir * (speed || 340), r: 26, life: 1.3, maxLife: 1.3, kind: 'shock', grow: 70 });
+}
+
+// el jefe aterriza tras una picada/aplastón
+function bmBossLand(e) {
+  shake = 14;
+  spawnParticles(e.x, GROUND, 18, ['#d8d0c0', '#b0a890'], 220, 0.5);
+  if (e.special === 'slam') { bmSpawnShock(e.x, -1, 360); bmSpawnShock(e.x, 1, 360); }
+  else if (e.special === 'dive') { bmHazards.push({ x: e.x, y: GROUND, vx: 0, r: 72, life: 0.32, maxLife: 0.32, kind: 'aoe' }); }
+  e.special = null;
+  e.state = PSTATE.RECOVER; e.stateTimer = 0.5;
+}
+
 // polvo del deslizamiento (solo visual → Math.random)
 function bmSlideDust(p) {
   for (let i = 0; i < 4; i++) {
@@ -113,19 +128,64 @@ function bmResolveHits() {
       const d = Math.abs(pl.x - e.x);
       if (d < mejorD) { mejorD = d; mejor = e; }
     }
-    if (mejor) { pl.hitDone = true; bmHitEnemy(mejor, pl); }
-  }
-
-  // enemigos golpean al jugador
-  if (pl.state !== PSTATE.DEAD && pl.invT <= 0) {
-    for (const e of bmEnemies) {
-      if (e.state === PSTATE.ATTACK && !e.hitDone && bmInReach(e, pl)) {
-        e.hitDone = true;
-        bmHitPlayer(e);
-        break;
-      }
+    if (mejor) {
+      pl.hitDone = true;
+      // atacar a la YAMAUBA en guardia letal = te contraataca
+      if (mejor.state === PSTATE.GUARD && mejor.guardCounter) bmGuardCounter(mejor);
+      else bmHitEnemy(mejor, pl);
     }
   }
+
+  // enemigos golpean al jugador (o el jugador para con parry)
+  if (pl.state !== PSTATE.DEAD) {
+    for (const e of bmEnemies) {
+      const golpea = (e.state === PSTATE.ATTACK && !e.hitDone && bmInReach(e, pl));
+      const embiste = (e.chargeT > 0 && bmInReach(e, pl));
+      if (!golpea && !embiste) continue;
+      if (golpea) e.hitDone = true;
+      if (pl.parryT > 0 && !e.unblockable && !embiste) { bmParrySuccess(e); break; }
+      if (pl.invT <= 0 && pl.parryT <= 0) { bmHitPlayer(e); break; }
+    }
+  }
+}
+
+// ---- parry / contraataque ----
+const BM_PARRY_DUR = 0.18;   // ventana en que la parada desvía
+const BM_PARRY_CD = 0.5;     // enfriamiento
+
+function bmPlayerParry() {
+  if (bmScene !== 'play' || !bmPlayer) return;
+  const p = bmPlayer;
+  if (p.state !== PSTATE.IDLE || p.parryT > 0 || p.parryCd > 0 || bmRespawnT > 0) return;
+  p.parryT = BM_PARRY_DUR;
+  p.parryCd = BM_PARRY_CD;
+  p.state = PSTATE.GUARD; p.stateTimer = 0.26; p.vx = 0;
+  sfxBlock && sfxBlock();
+}
+
+// parada exitosa: desvía el golpe; el común muere de la riposta, el jefe se tambalea
+function bmParrySuccess(e) {
+  sfxParry && sfxParry();
+  bmFlash = Math.max(bmFlash, 0.12); shake = 8;
+  timeScale = 0.35; slowmoTimer = 0.22;
+  spawnClash((e.x + bmPlayer.x) / 2, bodyCenterY(e) - 8);
+  floatText(bmPlayer.x, bodyCenterY(bmPlayer) - 52, '¡PARADA!', '#80e8ff', 22);
+  bmPlayer.parryT = 0;
+  if (e.isBoss) {
+    if (e.hp > 1) e.hp -= 1;
+    e.state = PSTATE.HITSTUN; e.stateTimer = 1.0; e.vx = -e.facing * 240;
+    if (e.hp <= 0) { bmKillFighter(e, bmPlayer); bmCreditKill(e, 1000); }
+  } else {
+    bmKillFighter(e, bmPlayer); bmCreditKill(e, 150);
+  }
+}
+
+// la yamauba en guardia contraataca a quien la golpea
+function bmGuardCounter(boss) {
+  boss.guardCounter = false; boss.state = PSTATE.IDLE; boss.atkCd = 0.5;
+  floatText(boss.x, bodyCenterY(boss) - 52, '¡CONTRA!', '#e8404a', 20);
+  sfxParry && sfxParry();
+  bmPlayerDie(boss.facing);
 }
 
 function bmHitEnemy(e, att) {
@@ -142,24 +202,34 @@ function bmHitEnemy(e, att) {
     return;
   }
   bmKillFighter(e, att);
-  bmScore += e.isBoss ? 1000 : 100;
-  bmKills += 1;
-  floatText(e.x, bodyCenterY(e) - 48, e.isBoss ? '¡JEFE CAÍDO!' : '+100', '#ffd040', e.isBoss ? 20 : 15);
+  bmCreditKill(e, e.isBoss ? 1000 : 100);
+  floatText(e.x, bodyCenterY(e) - 48, e.isBoss ? '¡JEFE CAÍDO!' : ('+' + Math.round((e.isBoss ? 1000 : 100) * bmMult)), '#ffd040', e.isBoss ? 20 : 15);
 }
 
-function bmHitPlayer(att) {
+// suma puntaje con multiplicador y avanza el combo
+function bmCreditKill(e, base) {
+  bmKills += 1;
+  bmCombo += 1;
+  bmComboT = 3.2;
+  bmComboBest = Math.max(bmComboBest, bmCombo);
+  bmMult = 1 + Math.floor(bmCombo / 3) * 0.5;   // cada 3 muertes: +0.5x
+  bmScore += Math.round(base * bmMult);
+}
+
+// muerte del jugador (golpe enemigo, embestida, onda o contra)
+function bmPlayerDie(facing) {
   const pl = bmPlayer;
   if (pl.invT > 0 || pl.state === PSTATE.DEAD) return;
   bmLives -= 1;
-  spawnBlood(pl.x, bodyCenterY(pl), att.facing, 30);
-  bmKillFighter(pl, att);
+  bmCombo = 0; bmMult = 1; bmComboT = 0;       // se pierde el combo al morir
+  spawnBlood(pl.x, bodyCenterY(pl), facing, 30);
+  bmKillFighter(pl, { facing: facing });
   bmFlash = 0.22;
-  if (bmLives <= 0) {
-    bmGameOverPending = true;
-  } else {
-    bmRespawnT = 1.5;
-  }
+  if (bmLives <= 0) bmGameOverPending = true;
+  else bmRespawnT = 1.5;
 }
+function bmHitPlayer(att) { bmPlayerDie(att.facing); }
+function bmHitPlayerByHazard(h) { bmPlayerDie(bmPlayer.x < h.x ? -1 : 1); }
 
 // muerte con cámara lenta y sangre (estilo del duelo)
 function bmKillFighter(victim, killer) {
