@@ -9,13 +9,19 @@
   canvas { display: block; image-rendering: auto; background: #1a1418;
            box-shadow: 0 0 60px rgba(0,0,0,0.8);
            width: min(100vw, calc(100vh * 16 / 9));
-           height: min(100vh, calc(100vw * 9 / 16)); }
+           height: min(100vh, calc(100vw * 9 / 16));
+           touch-action: none; -webkit-user-select: none; user-select: none; }
   #volver { position: fixed; top: 8px; left: 10px; z-index: 10;
             color: #9a9486; text-decoration: none; font-size: 13px; opacity: .6; }
   #volver:hover { opacity: 1; color: #e8c050; }
+  #rotate { display: none; position: fixed; inset: 0; z-index: 20;
+            background: #0c0a0c; color: #e8e0d0; align-items: center;
+            justify-content: center; text-align: center; font-size: 22px; line-height: 1.8; }
+  @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
 </style>
 
 <a id="volver" href="index.html">← duelos</a>
+<div id="rotate">📱⟳<br>Gira tu teléfono<br><span style="font-size:15px;color:#998">el beat 'em up se juega en horizontal</span></div>
 <div id="wrap"><canvas id="game" width="960" height="540"></canvas></div>
 
 <!-- núcleo reutilizado del duelo 1v1 (sin tocar su lógica) -->

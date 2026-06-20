@@ -59,6 +59,23 @@ function bmPlayerSlide(dir) {
   bmSlideDust(p);
 }
 
+// chorro de sangre del jefe abatido: brota sin parar del cuerpo, sube y cae;
+// al tocar el suelo cada gota queda como mancha permanente (bmStepFx la fija).
+function bmBleed(boss) {
+  const cy = bodyCenterY(boss);
+  for (let i = 0; i < 3; i++) {
+    particles.push({
+      x: boss.x + (Math.random() - 0.5) * 34,
+      y: cy + (Math.random() - 0.5) * 24,
+      vx: (Math.random() - 0.5) * 140,
+      vy: -120 - Math.random() * 180,
+      life: 2.2, maxLife: 2.2,
+      color: ['#c01818', '#8e0e0e', '#e03030', '#a01414'][Math.floor(Math.random() * 4)],
+      size: 2 + Math.random() * 3.5, gravity: true, stain: true,
+    });
+  }
+}
+
 // polvo del deslizamiento (solo visual → Math.random)
 function bmSlideDust(p) {
   for (let i = 0; i < 4; i++) {
@@ -155,14 +172,17 @@ function bmKillFighter(victim, killer) {
   victim.vy = -200;
   victim.bloodT = 1.4;
   sfxKill && sfxKill();
-  // cámara lenta SOLO en muertes importantes (jugador o jefe). Cortar a un
-  // enemigo común no debe frenar el ritmo del beat 'em up.
-  const epica = victim === bmPlayer || victim.isBoss;
-  shake = epica ? 16 : 9;
-  if (epica) {
-    timeScale = 0.18;
-    slowmoTimer = victim === bmPlayer ? 1.0 : 0.7;
-    bmFlash = Math.max(bmFlash, 0.12);
+  if (victim === bmPlayer) {
+    // muerte del jugador: cámara lenta dramática
+    shake = 16; timeScale = 0.18; slowmoTimer = 1.0; bmFlash = Math.max(bmFlash, 0.12);
+  } else if (victim.isBoss) {
+    // JEFE abatido: NADA de freeze/gris. El cuerpo queda manando sangre que se
+    // acumula en el suelo hasta que el jugador AVANZA a la siguiente etapa.
+    shake = 14;
+    bmBossDown = true;
+    bmFallenBoss = victim;
+  } else {
+    shake = 9;   // enemigo común: solo sacudida, sin frenar el ritmo
   }
   spawnParticles(victim.x, bodyCenterY(victim), 36, ['#c01818', '#901010', '#e03030'], 360, 1.1);
   spawnBlood(victim.x, bodyCenterY(victim), killer.facing, 30);

@@ -69,6 +69,7 @@ function bmUpdate(dt) {
   }
   if (bmTouchAtk) { bmPlayerAttack(); bmTouchAtk = false; }
   if (bmTouchJump) { bmPlayerJump(); bmTouchJump = false; }
+  if (bmTouchDash) { bmPlayerSlide(bmMoveDir() || pl.facing); bmTouchDash = false; }
 
   // ---- estados + física ----
   bmStepState(pl, dt);
@@ -83,10 +84,14 @@ function bmUpdate(dt) {
   bmResolveHits();
 
   // ---- limpiar muertos (tras la animación de caída) ----
+  // el JEFE caído NO se borra: queda en el suelo manando sangre.
   for (let i = bmEnemies.length - 1; i >= 0; i--) {
     const e = bmEnemies[i];
-    if (e.state === PSTATE.DEAD && e.deathT > 1.2) bmEnemies.splice(i, 1);
+    if (e.state === PSTATE.DEAD && e.deathT > 1.2 && !e.isBoss) bmEnemies.splice(i, 1);
   }
+
+  // ---- jefe abatido: sangra sin parar hasta que se avanza ----
+  if (bmBossDown && bmFallenBoss) bmBleed(bmFallenBoss);
 
   // ---- respawn del jugador / game over ----
   if (bmRespawnT > 0) {
@@ -134,8 +139,18 @@ function bmRespawnPlayer() {
 function bmUpdateWaves() {
   const pl = bmPlayer;
   if (!bmWaveActive) {
+    // todas las oleadas (incluido el jefe) ya despachadas
+    if (bmWaveIdx >= bmStage.waves.length) {
+      if (bmBossDown) {
+        // jefe abatido: cámara libre; avanza caminando al borde para pasar de etapa
+        bmCamMax = bmWorldW() - W;
+        if (pl.x >= bmWorldW() - 60) bmStageClear();
+      } else {
+        bmStageClear();
+      }
+      return;
+    }
     const wave = bmStage.waves[bmWaveIdx];
-    if (!wave) { bmStageClear(); return; }
     if (pl.x >= wave.at * bmWorldW()) {
       bmSpawnWave(wave);
       bmWaveActive = true;
@@ -153,8 +168,11 @@ function bmUpdateWaves() {
     if (!alive) {
       bmWaveActive = false;
       bmWaveIdx += 1;
-      if (bmWaveIdx >= bmStage.waves.length) { bmStageClear(); }
-      else { bmBanner = 'AVANZA'; bmBannerSub = '→'; bmBannerT = 1.4; }
+      if (bmWaveIdx >= bmStage.waves.length) {
+        // jefe caído: no se pasa de etapa aún; hay que avanzar a pie
+        if (bmBossDown) { bmBanner = '¡YOKAI ABATIDO!'; bmBannerSub = '→  avanza'; bmBannerT = 3; }
+        else bmStageClear();
+      } else { bmBanner = 'AVANZA'; bmBannerSub = '→'; bmBannerT = 1.4; }
     }
   }
 }
@@ -186,8 +204,9 @@ function bmStageClear() {
     bmEndT = 1.4;
     if (typeof stopMusic === 'function') stopMusic();
   } else {
-    bmScene = 'stageclear';
-    bmEndT = 2.6;
+    // sin pantalla gris: carga directa de la siguiente etapa (su banner anuncia)
+    bmLoadStage(bmStageIdx + 1);
+    bmScene = 'play';
   }
 }
 
@@ -199,6 +218,12 @@ function bmStepFx(dt) {
     if (p.life <= 0) { particles.splice(i, 1); continue; }
     if (p.gravity) p.vy += 900 * dt;
     p.x += p.vx * dt; p.y += p.vy * dt;
+    // sangre del jefe: al tocar el suelo queda como mancha permanente
+    if (p.stain && p.y >= GROUND - 2 && p.vy > 0) {
+      bmStains.push({ x: p.x, y: GROUND - Math.random() * 4, r: p.size * (0.9 + Math.random()), c: p.color });
+      if (bmStains.length > 900) bmStains.shift();
+      particles.splice(i, 1);
+    }
   }
   for (let i = floaters.length - 1; i >= 0; i--) {
     const f = floaters[i];

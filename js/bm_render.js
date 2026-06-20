@@ -32,9 +32,11 @@ function bmDraw() {
 
   bmDrawHud();
 
-  if (bmScene === 'stageclear') bmDrawStageClear();
   if (bmScene === 'gameover') bmDrawEnd('DERROTA', '一  ' + bmStage.kanji + '  一', '#c03030');
   if (bmScene === 'win') bmDrawEnd('¡LEYENDA!', 'Has vencido a los cinco yokai', '#e8c050');
+
+  // controles táctiles (celular) durante el juego
+  if (BM_TOUCH && bmScene === 'play') bmDrawTouch();
 
   // destello
   if (bmFlash > 0) {
@@ -54,6 +56,14 @@ function bmDrawWorld() {
   ctx.translate(-Math.round(bmCamX), 0);
 
   bmDrawBg();
+
+  // manchas de sangre acumuladas en el suelo (jefe abatido)
+  for (const s of bmStains) {
+    ctx.fillStyle = s.c;
+    ctx.beginPath();
+    ctx.ellipse(s.x, s.y, s.r, s.r * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   // estelas de corte (mundo)
   for (const s of slashTrails) {
@@ -158,6 +168,18 @@ function bmDrawHud() {
 
   // banner de etapa / aviso de avance
   if (bmBannerT > 0) bmDrawBanner();
+
+  // jefe abatido: aviso persistente de que hay que avanzar
+  if (bmBossDown) {
+    ctx.save();
+    ctx.globalAlpha = 0.55 + Math.sin(bmArrowPulse * 5) * 0.35;
+    ctx.fillStyle = '#e8c050';
+    ctx.font = 'bold 22px "Courier New", monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('AVANZA  →', W - 24, H * 0.5);
+    ctx.restore();
+    ctx.textAlign = 'left';
+  }
 }
 
 function bmDrawLifeIcon(x, y) {
@@ -180,6 +202,27 @@ function bmDrawBossBar(boss) {
   ctx.textAlign = 'center';
   ctx.fillText(boss.char.name + '  ' + boss.char.kanji, W / 2, y - 6);
   ctx.textAlign = 'left';
+}
+
+function bmDrawTouch() {
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (const b of BM_TBTN) {
+    const on = bmTouch[b.id];
+    ctx.globalAlpha = on ? 0.6 : 0.24;
+    ctx.fillStyle = on ? '#e8c050' : '#ffffff';
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = on ? 0.9 : 0.5;
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#10101a';
+    ctx.font = `bold ${Math.round(b.r * 0.7)}px sans-serif`;
+    ctx.fillText(b.label, b.x, b.y + 1);
+  }
+  ctx.restore();
+  ctx.globalAlpha = 1;
+  ctx.textBaseline = 'alphabetic';
 }
 
 function bmDrawBanner() {
@@ -229,10 +272,14 @@ function bmDrawTitle() {
   bmCenterText('KATANA RŌNIN', 52, H * 0.34, '#e8c050', '#b03030');
   bmCenterText('一  el camino del filo  一', 18, H * 0.34 + 38, '#c0b8a8');
   ctx.globalAlpha = 0.7 + Math.sin(bmTime * 3) * 0.3;
-  bmCenterText('PULSA  F  /  ENTER  PARA EMPEZAR', 18, H * 0.62, '#e8e0d0');
+  bmCenterText(BM_TOUCH ? 'TOCA LA PANTALLA PARA EMPEZAR' : 'PULSA  F  /  ENTER  PARA EMPEZAR', 18, H * 0.62, '#e8e0d0');
   ctx.globalAlpha = 1;
-  bmCenterText('← →  mover     W / ↑  saltar     F  cortar', 14, H * 0.76, '#9a9486');
-  bmCenterText('doble ← / →  ó  SHIFT  ·  deslizamiento rápido (esquiva)', 14, H * 0.82, '#9a9486');
+  if (BM_TOUCH) {
+    bmCenterText('botones en pantalla: ◀ ▶ mover · ▲ saltar · 斬 cortar · » deslizar', 13, H * 0.79, '#9a9486');
+  } else {
+    bmCenterText('← →  mover     W / ↑  saltar     F  cortar', 14, H * 0.76, '#9a9486');
+    bmCenterText('doble ← / →  ó  SHIFT  ·  deslizamiento rápido (esquiva)', 14, H * 0.82, '#9a9486');
+  }
   bmCenterText('un golpe mata — avanza y derrota al yokai de cada etapa', 13, H * 0.88, '#8a8478');
 }
 
@@ -260,7 +307,7 @@ function bmDrawChoose() {
     bmWrap(ch.desc, spots[i], H * 0.78, 22, 18);
     ctx.textAlign = 'left';
   }
-  bmCenterText('← →  elegir      F  confirmar', 16, H * 0.92, '#e8e0d0');
+  bmCenterText(BM_TOUCH ? 'toca un guerrero para empezar' : '← →  elegir      F  confirmar', 16, H * 0.92, '#e8e0d0');
 }
 
 function bmWrap(txt, x, y, maxChars, lh) {
@@ -271,12 +318,6 @@ function bmWrap(txt, x, y, maxChars, lh) {
     line += w + ' ';
   }
   ctx.fillText(line.trim(), x, yy);
-}
-
-function bmDrawStageClear() {
-  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, W, H);
-  bmCenterText('ETAPA SUPERADA', 40, H * 0.42, '#e8c050', '#b03030');
-  bmCenterText(bmStage.name + '  ·  ' + bmScore + ' puntos', 18, H * 0.52, '#d8cfbf');
 }
 
 function bmDrawEnd(title, sub, color) {

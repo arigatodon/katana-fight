@@ -34,6 +34,9 @@ let bmRespawnT = 0;
 let bmGameOverPending = false;
 let bmChooseSel = 0;
 let bmFlash = 0;            // destello blanco (muerte / corte)
+let bmBossDown = false;     // jefe abatido: mana sangre y hay que AVANZAR a pie
+let bmFallenBoss = null;    // el jefe caído (origen del chorro de sangre)
+let bmStains = [];          // manchas rojas que quedan en el suelo (persistentes)
 let bmEndT = 0;            // temporizador de pantallas de fin
 let bmArrowPulse = 0;      // flecha "avanza →"
 
@@ -150,6 +153,9 @@ function bmLoadStage(i) {
   bmCamMax = bmWorldW() - W;
   bmWaveIdx = 0;
   bmWaveActive = false;
+  bmBossDown = false;
+  bmFallenBoss = null;
+  bmStains = [];
   particles.length = 0;
   floaters.length = 0;
   slashTrails.length = 0;

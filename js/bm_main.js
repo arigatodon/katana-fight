@@ -11,11 +11,6 @@ function bmTick(dt) {
   // temporizadores de pantallas de transición
   if (bmEndT > 0) bmEndT -= dt;
 
-  if (bmScene === 'stageclear') {
-    bmTime += dt;
-    if (bmEndT <= 0) bmLoadStage(bmStageIdx + 1), bmScene = 'play';
-    return;
-  }
   if (bmScene === 'title' || bmScene === 'choose' || bmScene === 'gameover' || bmScene === 'win') {
     bmTime += dt;
     if (bmFlash > 0) bmFlash -= dt;
