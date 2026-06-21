@@ -269,8 +269,16 @@ function bmKillFighter(victim, killer) {
   victim.bloodT = 1.4;
   sfxKill && sfxKill();
   if (bmAllPlayers().includes(victim)) {
-    // muerte del jugador: cámara lenta dramática
-    shake = 16; timeScale = 0.18; slowmoTimer = 1.0; bmFlash = Math.max(bmFlash, 0.12);
+    // muerte de un jugador
+    bmFlash = Math.max(bmFlash, 0.12);
+    if (bmCoop) {
+      // en co-op el OTRO jugador sigue peleando: NADA de cámara lenta — frenar
+      // el tiempo 1 s le congelaría la partida (el "se pega"). Solo golpe de cámara.
+      shake = 16;
+    } else {
+      // 1 jugador: cámara lenta dramática
+      shake = 16; timeScale = 0.18; slowmoTimer = 1.0;
+    }
   } else if (victim.isBoss) {
     // JEFE abatido: NADA de freeze/gris. El cuerpo queda manando sangre que se
     // acumula en el suelo hasta que el jugador AVANZA a la siguiente etapa.
