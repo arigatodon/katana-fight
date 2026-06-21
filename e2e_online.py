@@ -52,9 +52,9 @@ try:
         for pg in (A, B):
             pg.wait_for_function("typeof scene !== 'undefined' && scene === 'title'")
 
-        # menú: bajar hasta DUELO EN LÍNEA (índice 3), poner nombre y buscar
+        # menú: bajar hasta DUELO EN LÍNEA (índice 1), poner nombre y buscar
         for pg, nombre in ((A, 'IGOR'), (B, 'ANA')):
-            for _ in range(3): pg.keyboard.press('ArrowDown')
+            pg.keyboard.press('ArrowDown')
             pg.keyboard.press('Enter')
             wait_for(pg, "scene === 'nombre'")
             pg.fill('#nameInput', nombre)

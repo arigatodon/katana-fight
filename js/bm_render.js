@@ -110,12 +110,19 @@ function bmDraw() {
     ctx.fillStyle = `rgba(255,255,255,${Math.min(0.7, bmFlash * 3.2)})`;
     ctx.fillRect(0, 0, W, H);
   }
-  // viñeta
-  const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, H * 0.98);
-  vig.addColorStop(0, 'rgba(0,0,0,0)');
-  vig.addColorStop(1, 'rgba(0,0,0,0.5)');
-  ctx.fillStyle = vig;
+  // viñeta (gradiente constante: cacheado, se reusa cada frame)
+  ctx.fillStyle = bmVignetteGrad();
   ctx.fillRect(0, 0, W, H);
+}
+
+let _bmVigGrad = null;
+function bmVignetteGrad() {
+  if (!_bmVigGrad) {
+    _bmVigGrad = ctx.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, H * 0.98);
+    _bmVigGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    _bmVigGrad.addColorStop(1, 'rgba(0,0,0,0.5)');
+  }
+  return _bmVigGrad;
 }
 
 function bmDrawWorld() {

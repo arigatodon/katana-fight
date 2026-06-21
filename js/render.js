@@ -1255,10 +1255,18 @@ function drawFight(t) {
     ctx.fillRect(0, 0, W, H);
   }
 
-  // viñeta
-  const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, H * 0.95);
-  vig.addColorStop(0, 'rgba(0,0,0,0)');
-  vig.addColorStop(1, 'rgba(0,0,0,0.5)');
-  ctx.fillStyle = vig;
+  // viñeta (gradiente constante: se construye una sola vez y se reusa cada frame)
+  ctx.fillStyle = vignetteGrad();
   ctx.fillRect(0, 0, W, H);
+}
+
+// gradiente de viñeta cacheado (sus parámetros nunca cambian)
+let _vigGrad = null;
+function vignetteGrad() {
+  if (!_vigGrad) {
+    _vigGrad = ctx.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, H * 0.95);
+    _vigGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    _vigGrad.addColorStop(1, 'rgba(0,0,0,0.5)');
+  }
+  return _vigGrad;
 }

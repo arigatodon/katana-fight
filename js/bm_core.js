@@ -70,9 +70,19 @@ function bmChar(id) {
   return allChars().find(c => c.id === id) || CHARS[0];
 }
 
-// jugadores activos: en solo solo el local; en co-op el local y el compañero
+// jugadores activos: en solo solo el local; en co-op el local y el compañero.
+// Se llama muchas veces por tic (IA, física, oleadas, cámara, render), así que
+// cacheamos el array y solo lo reconstruimos cuando cambia la composición
+// (bmPlayer/bmMate/bmCoop). Ningún caller muta el array devuelto (solo iteran),
+// por eso es seguro compartir la misma instancia.
+let _bmPlayers = [];
+let _bmPlayersP, _bmPlayersM, _bmPlayersCoop;
 function bmAllPlayers() {
-  return bmCoop ? [bmPlayer, bmMate].filter(Boolean) : [bmPlayer].filter(Boolean);
+  if (bmPlayer !== _bmPlayersP || bmMate !== _bmPlayersM || bmCoop !== _bmPlayersCoop) {
+    _bmPlayersP = bmPlayer; _bmPlayersM = bmMate; _bmPlayersCoop = bmCoop;
+    _bmPlayers = (bmCoop ? [bmPlayer, bmMate] : [bmPlayer]).filter(Boolean);
+  }
+  return _bmPlayers;
 }
 
 // el jugador vivo (no muerto ni reapareciendo) más cercano a `e`, o null

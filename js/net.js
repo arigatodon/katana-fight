@@ -10,8 +10,15 @@
 //  navegadores calculan exactamente la misma pelea.
 // ============================================================
 
-const NET_DELAY = 4;          // tics de retraso de input (~67 ms a 60 Hz)
-const NET_MAX_CATCHUP = 5;    // máx tics simulados por frame al ponerse al día
+// Retraso de input del lockstep. Cada cliente envía su input para el tic
+// T+NET_DELAY y la simulación de T solo avanza cuando llegó el input del rival
+// de ese tic. Si la latencia/jitter de ida supera NET_DELAY*16.7 ms, el buffer
+// se vacía y la simulación SE CONGELA esperando al rival (eso es lo que se siente
+// como "lentitud"/tirones online). Subirlo da más colchón a costa de un pelín más
+// de retraso de input — para conexiones reales a un VPS compartido conviene un
+// colchón mayor que 67 ms. DEBE ser idéntico en ambos lados (ver netMaybeStart).
+const NET_DELAY = 6;          // tics de retraso de input (~100 ms a 60 Hz)
+const NET_MAX_CATCHUP = 8;    // máx tics simulados por frame al ponerse al día tras un stall
 
 let net = null;               // null = sin partida online
 let netResult = null;         // resultado del último duelo online (para matchEnd)

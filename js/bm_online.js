@@ -267,15 +267,18 @@ function bmGuestUpdate(dt) {
   bmConsumeTouchActions();          // acciones táctiles del local (se envían al host)
   bmNetGuestSendDir();              // cambios de dirección sostenida
 
-  // interpolación exponencial hacia la posición objetivo del snapshot
+  // interpolación exponencial hacia la posición objetivo del snapshot.
+  // Recorremos enemigos y jugadores sin concatenar (evita una asignación por frame).
   const a = 1 - Math.exp(-dt * 22);
-  for (const f of bmEnemies.concat(bmAllPlayers())) {
-    if (f.tx == null) continue;
+  const interp = f => {
+    if (!f || f.tx == null) return;
     f.x += (f.tx - f.x) * a;
     f.y += (f.ty - f.y) * a;
     f.bob += dt * (f.onGround && Math.abs(f.vx) > 30 ? 14 : 6);
     if (f.invT > 0) f.invT -= dt;
-  }
+  };
+  for (const e of bmEnemies) interp(e);
+  for (const p of bmAllPlayers()) interp(p);
   bmCamX += (bmCamTarget - bmCamX) * a;
 
   // efectos puramente visuales (mismos arrays/timers que el host)
