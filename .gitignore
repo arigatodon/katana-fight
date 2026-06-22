@@ -6,5 +6,5 @@ tools/__pycache__/
 .env
 
 # artefactos de build para itch (no versionar)
-cover_itch.png
+*_itch.png
 *.zip

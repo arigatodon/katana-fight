@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>KATANA FIGHT — roster</title>
+<style>
+  html, body { margin: 0; background: #0e0c14; }
+  /* tamaño del lienzo del roster (lo lee core.js como W/H) */
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<!-- el ancho/alto definen W/H en core.js -->
+<canvas id="game" width="1200" height="900"></canvas>
+<!-- elementos que algunos módulos esperan en el DOM (no se usan aquí) -->
+<input id="nameInput" style="display:none"><input id="bmName" style="display:none">
+
+<!-- solo lo necesario para dibujar un guerrero -->
+<script src="js/core.js"></script>
+<script src="js/data.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/player.js"></script>
+<script src="js/render.js"></script>
+
+<script>
+'use strict';
+// ============================================================
+//  Roster ukiyo-e: dibuja cada guerrero con el MISMO motor del
+//  juego (drawSamurai) + nombre, kanji y su habilidad distintiva.
+//  Pensado para capturarse como imagen de la página de itch.io.
+// ============================================================
+const CW = cvs.width, CH = cvs.height;
+seedRng(7);   // determinista (rollRasgo usa rnd)
+
+function fighterAt(ch, x, feetY, facing) {
+  const p = makePlayer(x, facing, ch, false, ch.name, null, 0);
+  p.x = x; p.y = feetY; p.onGround = true; p.bob = 1.2;
+  drawSamurai(p);          // sombra + figura (origami si hay arte, si no procedural)
+}
+
+function wrap(text, max) {
+  const words = text.split(' ');
+  const lines = []; let cur = '';
+  for (const w of words) {
+    const t = cur ? cur + ' ' + w : w;
+    if (ctx.measureText(t).width > max && cur) { lines.push(cur); cur = w; }
+    else cur = t;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+function cell(ch, cx, feetY, accent) {
+  fighterAt(ch, cx, feetY, 1);
+  ctx.textAlign = 'center';
+  // kanji
+  ctx.font = 'bold 22px serif';
+  ctx.fillStyle = accent;
+  ctx.fillText(ch.kanji, cx, feetY + 26);
+  // nombre
+  ctx.font = 'bold 14px "Courier New", monospace';
+  ctx.fillStyle = '#f0ead8';
+  ctx.fillText(ch.name, cx, feetY + 46);
+  // habilidad (envuelta)
+  ctx.font = '12px "Courier New", monospace';
+  ctx.fillStyle = '#b9b09c';
+  const lines = wrap(ch.desc, 250);
+  lines.forEach((ln, i) => ctx.fillText(ln, cx, feetY + 64 + i * 15));
+}
+
+function drawRoster() {
+  // fondo washi sobrio
+  ctx.fillStyle = '#11101a';
+  ctx.fillRect(0, 0, CW, CH);
+  const g = ctx.createLinearGradient(0, 0, 0, CH);
+  g.addColorStop(0, '#171528'); g.addColorStop(0.5, '#10101c'); g.addColorStop(1, '#0c0a12');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, CW, CH);
+
+  // título
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 34px serif';
+  ctx.fillStyle = '#c03434';
+  ctx.fillText('剣士', CW / 2 - 150, 52);
+  ctx.font = 'bold 30px "Courier New", monospace';
+  ctx.fillStyle = '#e8c050';
+  ctx.fillText('LOS GUERREROS', CW / 2, 50);
+  ctx.font = '13px "Courier New", monospace';
+  ctx.fillStyle = '#8a8270';
+  ctx.fillText('cada uno con su propio estilo de katana', CW / 2, 72);
+
+  // 8 guerreros base: 4 columnas × 2 filas
+  const colX = [150, 450, 750, 1050];
+  const rowFeet = [250, 470];
+  for (let i = 0; i < CHARS.length; i++) {
+    cell(CHARS[i], colX[i % 4], rowFeet[Math.floor(i / 4)], '#e8c050');
+  }
+
+  // separador
+  ctx.strokeStyle = 'rgba(154,208,232,0.35)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(120, 560); ctx.lineTo(CW - 120, 560); ctx.stroke();
+  ctx.font = 'bold 17px "Courier New", monospace';
+  ctx.fillStyle = '#9ad0e8';
+  ctx.fillText('妖怪 — YOKAI · JEFES SECRETOS', CW / 2, 588);
+  ctx.font = '12px "Courier New", monospace';
+  ctx.fillStyle = '#76808a';
+  ctx.fillText('gigantes lentos pero letales — derrótalos para desbloquearlos', CW / 2, 606);
+
+  // 5 yokai: una fila centrada
+  const sx = [140, 380, 620, 860, 1100];
+  for (let i = 0; i < SECRET_CHARS.length; i++) {
+    cell(SECRET_CHARS[i], sx[i], 780, '#9ad0e8');
+  }
+
+  // pie
+  ctx.font = '12px "Courier New", monospace';
+  ctx.fillStyle = '#6a6358';
+  ctx.fillText('KATANA FIGHT · katana.igorv.org', CW / 2, CH - 16);
+}
+
+// el arte (piezas/PNG) carga async; redibuja varias veces hasta que esté listo
+let n = 0;
+const iv = setInterval(() => { drawRoster(); if (++n >= 16) clearInterval(iv); window.__rosterReady = true; }, 200);
+drawRoster();
+</script>
+</body>
+</html>
