@@ -51,7 +51,8 @@ function rankEntry(name) {
 function topRanking(n) {
   return Object.entries(ranking)
     .map(([name, r]) => ({ name, ...r }))
-    .sort((a, b) => b.pts - a.pts)
+    // ordena por mejor racha y, a igualdad de racha, por puntos
+    .sort((a, b) => (b.best - a.best) || (b.pts - a.pts))
     .slice(0, n);
 }
 
