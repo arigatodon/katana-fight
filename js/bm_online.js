@@ -27,13 +27,15 @@ let bmCamTarget = 0;         // cámara objetivo (el invitado interpola hacia el
 // fases: conectando | buscando | eligiendo | esperando | jugando | error
 function bmNetActive() { return bmNet !== null && bmNet.fase !== 'error'; }
 
+const BM_NET_SERVER = 'wss://katana.igorv.org/ws';   // servidor de emparejamiento (VPS)
 function bmNetUrl() {
   const q = new URLSearchParams(location.search).get('server');
-  if (q) return q;
-  if (location.protocol === 'https:') return 'wss://' + location.host + '/ws';
-  const local = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-  if (location.protocol === 'http:' && !local) return 'ws://' + location.host + '/ws';
-  return 'ws://localhost:8081';     // desarrollo local o file://
+  if (q) return q;                                // override explícito (?server=)
+  const h = location.hostname;
+  if (h === 'localhost' || h === '127.0.0.1' || h === '') return 'ws://localhost:8081';  // local / file://
+  if (h === 'katana.igorv.org') return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
+  // otro origen (itch.io, etc.) → el co-op apunta igual al servidor del VPS
+  return BM_NET_SERVER;
 }
 
 function bmNetName() {

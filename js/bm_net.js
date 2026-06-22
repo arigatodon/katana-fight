@@ -11,10 +11,15 @@
 let bmRankList = null;     // top recibido del servidor
 let bmRankState = '';      // '' | 'loading' | 'ok' | 'error'
 
-// misma idea que net.js: relativo si nos sirve el server; localhost en file://
+// misma idea que net.js: relativo si nos sirve el propio dominio; localhost en
+// file://; y desde cualquier otro origen (itch.io) apunta al VPS.
 function bmApiBase() {
-  try { return location.protocol === 'file:' ? 'http://localhost:8081' : ''; }
-  catch (e) { return ''; }
+  try {
+    const h = location.hostname;
+    if (location.protocol === 'file:' || h === 'localhost' || h === '127.0.0.1' || h === '') return 'http://localhost:8081';
+    if (h === 'katana.igorv.org') return '';              // mismo host del juego
+    return 'https://katana.igorv.org';                    // otro origen → servidor del VPS
+  } catch (e) { return ''; }
 }
 
 function bmLoadRank() {

@@ -4,3 +4,7 @@ server/node_modules/
 tools/ai_raw/
 tools/__pycache__/
 .env
+
+# artefactos de build para itch (no versionar)
+cover_itch.png
+*.zip

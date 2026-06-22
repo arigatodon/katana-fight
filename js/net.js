@@ -27,13 +27,17 @@ let netRank = null;           // ranking en línea: { fase, rows }
 function netActive() { return net !== null && net.fase !== 'error'; }
 function netPlaying() { return net !== null && net.fase === 'jugando'; }
 
+const NET_SERVER = 'wss://katana.igorv.org/ws';   // servidor de emparejamiento (VPS)
 function netUrl() {
   const q = new URLSearchParams(location.search).get('server');
-  if (q) return q;
-  if (location.protocol === 'https:') return 'wss://' + location.host + '/ws';
-  const local = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-  if (location.protocol === 'http:' && !local) return 'ws://' + location.host + '/ws';
-  return 'ws://localhost:8081';     // desarrollo local o file:// → node server.js
+  if (q) return q;                                // override explícito (?server=)
+  const h = location.hostname;
+  if (h === 'localhost' || h === '127.0.0.1' || h === '') return 'ws://localhost:8081';  // local / file://
+  // servido desde el propio dominio del juego → mismo host
+  if (h === 'katana.igorv.org') return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
+  // cualquier OTRO origen (itch.io u otro mirror, donde el juego corre en un
+  // iframe ajeno) → el online debe apuntar igual al servidor del VPS
+  return NET_SERVER;
 }
 
 // base HTTP del servidor del juego (para GET /ranking), espejo de netUrl
