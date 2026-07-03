@@ -38,6 +38,7 @@ function draw(t) {
   if (netPlaying() && net.stallT > 0.3) {
     drawCenterText('esperando al rival…', 14, H * 0.08, '#c0b8a8', 'transparent');
   }
+  if (replay) drawReplayOverlay(t);   // letrero del modo replay
   ctx.restore();
 }
 
@@ -56,6 +57,8 @@ function loop(ts) {
   // enviar inputs viejos que contaminarían el mapa de una posible revancha
   if (netPlaying() && scene !== 'matchEnd') {
     dtAcc = netPump(dtAcc, frameDt);   // online: avanza solo con inputs de ambos
+  } else if (replayActive()) {
+    dtAcc = replayPump(dtAcc);         // replay: re-simula el duelo grabado
   } else {
     while (dtAcc >= FIXED_DT) {
       update(FIXED_DT);

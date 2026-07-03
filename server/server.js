@@ -140,6 +140,74 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
+// ---------------- Replays de duelos ----------------
+// El lockstep determinista hace los replays casi gratis: semilla + inputs de
+// ambos lados (RLE) pesan unos KB y re-simulan la pelea entera. El lado 0
+// publica al terminar; ?replay=<id> la reproduce. Se guardan los últimos
+// MAX_REPLAYS en disco (volumen katana_data) con un índice de metadatos.
+const REPLAY_DIR = path.join(DATA_DIR, 'replays');
+const REPLAY_INDEX = path.join(REPLAY_DIR, 'index.json');
+const MAX_REPLAYS = 100;
+const MAX_REPLAY_BYTES = 65536;      // un duelo largo en RLE queda muy por debajo
+let replays = [];                    // metadatos, el más reciente al final
+try { replays = JSON.parse(fs.readFileSync(REPLAY_INDEX, 'utf8')); } catch (e) {}
+const lastReplayByIp = new Map();    // antiabuso: 1 publicación por IP cada 10 s
+
+function saveReplayIndex() {
+  try {
+    fs.mkdirSync(REPLAY_DIR, { recursive: true });
+    fs.writeFileSync(REPLAY_INDEX, JSON.stringify(replays));
+  } catch (e) { console.error('no se pudo guardar el índice de replays:', e.message); }
+}
+
+const cleanId = s => String(s || '').replace(/[^a-z0-9_-]/gi, '').slice(0, 32);
+
+function postReplay(req, res) {
+  let body = '';
+  req.on('data', ch => { body += ch; if (body.length > MAX_REPLAY_BYTES) req.destroy(); });
+  req.on('end', () => {
+    const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '')
+      .split(',')[0].trim();
+    if (Date.now() - (lastReplayByIp.get(ip) || 0) < 10000) {
+      res.writeHead(429, CORS_JSON); res.end('{"ok":false}'); return;
+    }
+    let m; try { m = JSON.parse(body); } catch (e) { m = null; }
+    const rleOk = a => Array.isArray(a) && a.length <= 40000 && a.length % 2 === 0 &&
+      a.every(n => Number.isInteger(n) && n >= 0 && n <= 100000);
+    if (!m || !Number.isInteger(m.v) || !Array.isArray(m.chars) || !Array.isArray(m.names) ||
+        !Array.isArray(m.inputs) || m.inputs.length !== 2 || !rleOk(m.inputs[0]) || !rleOk(m.inputs[1])) {
+      res.writeHead(400, CORS_JSON); res.end('{"ok":false}'); return;
+    }
+    lastReplayByIp.set(ip, Date.now());
+    if (lastReplayByIp.size > 1000) lastReplayByIp.clear();
+    const limpiaNombre = s => String(s || '').replace(/[^\p{L}\p{N} _.-]/gu, '')
+      .trim().slice(0, 12).toUpperCase() || 'ANÓNIMO';
+    const id = Math.floor(Math.random() * 36 ** 8).toString(36).padStart(8, '0');
+    const data = {
+      v: m.v | 0, seed: m.seed >>> 0,
+      chars: [cleanId(m.chars[0]), cleanId(m.chars[1])],
+      names: [limpiaNombre(m.names[0]), limpiaNombre(m.names[1])],
+      winner: m.winner === 1 ? 1 : 0,
+      score: Math.max(0, Math.min(MAX_SCORE, Math.floor(+m.score) || 0)),
+      inputs: m.inputs,
+    };
+    try {
+      fs.mkdirSync(REPLAY_DIR, { recursive: true });
+      fs.writeFileSync(path.join(REPLAY_DIR, id + '.json'), JSON.stringify(data));
+    } catch (e) { res.writeHead(500, CORS_JSON); res.end('{"ok":false}'); return; }
+    replays.push({ id, v: data.v, names: data.names, chars: data.chars,
+                   winner: data.winner, score: data.score,
+                   fecha: new Date().toISOString().slice(0, 10) });
+    while (replays.length > MAX_REPLAYS) {
+      const viejo = replays.shift();
+      try { fs.unlinkSync(path.join(REPLAY_DIR, viejo.id + '.json')); } catch (e) {}
+    }
+    saveReplayIndex();
+    console.log(new Date().toISOString(), `replay guardado: ${data.names[0]} vs ${data.names[1]} (${id})`);
+    res.writeHead(200, CORS_JSON); res.end(JSON.stringify({ ok: true, id }));
+  });
+}
+
 // ---------------- Comentarios de los jugadores ----------------
 // Al terminar un torneo el juego ofrece dejar un comentario o
 // sugerencia; se guardan en disco y se publican en GET /comentarios
@@ -272,6 +340,22 @@ const httpServer = http.createServer((req, res) => {
     return;
   }
   if (p === '/beatscore' && req.method === 'POST') { postBeatScore(req, res); return; }
+  if (p === '/replay' && req.method === 'POST') { postReplay(req, res); return; }
+  if (p === '/replay') {                  // GET /replay?id=xxxx → el replay entero
+    let id = '';
+    try { id = new URL(req.url, 'http://x').searchParams.get('id') || ''; } catch (e) {}
+    id = cleanId(id);
+    fs.readFile(path.join(REPLAY_DIR, id + '.json'), (err, data) => {
+      if (err) { res.writeHead(404, CORS_JSON); res.end('{"ok":false}'); return; }
+      res.writeHead(200, CORS_JSON); res.end(data);
+    });
+    return;
+  }
+  if (p === '/replays') {                 // los duelos grabados más recientes
+    res.writeHead(200, CORS_JSON);
+    res.end(JSON.stringify(replays.slice(-10).reverse()));
+    return;
+  }
   if (p === '/estado') {                 // presencia: ¿hay con quién emparejarse?
     let id = '';
     try { id = new URL(req.url, 'http://x').searchParams.get('id') || ''; } catch (e) {}

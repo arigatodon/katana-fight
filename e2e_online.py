@@ -134,6 +134,7 @@ try:
                 if ig != len(com):
                     k0 = next(k for k in com if sa[k] != sb[k])
                     fallos.append(f'  desvío ({etiqueta}) tic {k0}:\n   A: {sa[k0]}\n   B: {sb[k0]}')
+                return sa
 
             RA, RB = browser.new_page(), browser.new_page()
             RA.goto(URL); RB.goto(URL)
@@ -153,8 +154,15 @@ try:
 
             # duelo 1 completo: REMA machaca, REMB no se defiende
             check('duelo 1 terminado', machacar_hasta(RA, RB, 'matchEnd'))
-            comparar_snaps(RA, RB, 'duelo 1')
+            snap_d1 = comparar_snaps(RA, RB, 'duelo 1')
             check('resultado en ambos', RA.evaluate('netResult !== null') and RB.evaluate('netResult !== null'))
+
+            # el lado 0 publicó el replay y compartió el id con el rival
+            wait_for(RA, 'netReplayId !== null', 10000)
+            wait_for(RB, 'netReplayId !== null', 10000)
+            replay_id = RA.evaluate('netReplayId')
+            check('replay publicado y compartido', RB.evaluate('netReplayId') == replay_id,
+                  str(replay_id))
             check('oferta de revancha abierta',
                   RA.evaluate('netRematch && !netRematch.gone') and RB.evaluate('netRematch && !netRematch.gone'))
 
@@ -196,6 +204,59 @@ try:
             wait_for(RA, "scene === 'ranking'", 5000)
             check('salida limpia al ranking', True)
             RA.close()
+
+            # ---- ver el replay del duelo 1: debe re-simular EXACTAMENTE la pelea ----
+            RP = browser.new_page()
+            RP.goto(URL + '&replay=' + replay_id)
+            RP.wait_for_function("typeof replayActive === 'function'")
+            RP.evaluate("""() => {
+              window.__snap = {};
+              const _u = update;
+              update = function (dt) {
+                _u(dt);
+                if (replayActive()) {
+                  __snap[replay.tick] = [p1 && p1.x, p1 && p1.y, p1 && p1.vida, p1 && p1.postura,
+                                         p2 && p2.x, p2 && p2.y, p2 && p2.vida, p2 && p2.postura,
+                                         roundNum, scene].join(',');
+                }
+              };
+            }""")
+            wait_for(RP, 'replay && replay.playing', 10000)
+            peso = RP.evaluate(f"fetch(netHttpBase() + '/replay?id={replay_id}').then(r => r.text()).then(t => t.length)")
+            check('el replay pesa poco', peso < 50000, f'{peso} bytes')
+            # pausa: la simulación se congela y se reanuda
+            RP.keyboard.press('Space')
+            t0 = RP.evaluate('replay.tick'); time.sleep(0.4)
+            check('pausa congela el replay', RP.evaluate('replay.paused && replay.tick === ' + str(t0)))
+            RP.keyboard.press('Space')
+            RP.keyboard.press('v')                       # velocidad ×2
+            time.sleep(0.2)
+            check('velocidad ×2', RP.evaluate('replay.speed') == 2)
+            wait_for(RP, "scene === 'matchEnd'", 120000)
+            rsnap = RP.evaluate('window.__snap')
+            com = sorted(set(snap_d1) & set(rsnap), key=int)
+            ig = sum(1 for k in com if snap_d1[k] == rsnap[k])
+            check('replay re-simula idéntico al duelo', len(com) > 500 and ig == len(com),
+                  f'{ig}/{len(com)} tics')
+            lista = RP.evaluate("fetch(netHttpBase() + '/replays').then(r => r.json())")
+            check('lista de duelos grabados', len(lista) >= 2 and all('id' in r for r in lista),
+                  f'{len(lista)} replays')
+
+            # replay de otra versión del juego: se rechaza con aviso, nunca diverge
+            time.sleep(1)
+            bad = RP.evaluate("""async () => {
+              const r = await fetch(netHttpBase() + '/replay', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ v: 999, seed: 1, chars: ['ronin', 'ronin'],
+                  names: ['VIEJO', 'REPLAY'], winner: 0, score: 0, inputs: [[0, 10], [0, 10]] }),
+              });
+              return r.json();
+            }""")
+            VP = browser.new_page()
+            VP.goto(URL + '&replay=' + bad['id'])
+            wait_for(VP, "typeof net !== 'undefined' && net && net.fase === 'error'", 8000)
+            check('replay de otra era rechazado con aviso', 'era' in str(VP.evaluate('net.error')))
+            RP.close(); VP.close()
 
         # ranking en línea: dos sockets se emparejan, ambos reportan el
         # mismo resultado y el ganador debe aparecer en GET /ranking

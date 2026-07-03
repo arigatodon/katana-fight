@@ -108,6 +108,10 @@ function startMatch() {
     p1.name = net.side === 0 ? net.myName + ' (TÚ)' : net.foeName;
     p2.name = net.side === 1 ? net.myName + ' (TÚ)' : net.foeName;
   }
+  if (replayActive()) {        // replay: los nombres de los duelistas grabados
+    p1.name = replay.data.names[0];
+    p2.name = replay.data.names[1];
+  }
   roundNum = 0;
   matchWinner = null;
   ghostRec = null; ghostPlay = null;
@@ -118,7 +122,9 @@ function startMatch() {
 // Se llama una vez por combate desde startMatch, no cada ronda.
 function pickDestino() {
   destinoPorClima = false;
-  if (!netActive() && clima && rnd() < 0.55) {
+  // online y replay cortocircuitan ANTES de rnd(): la corriente del RNG debe
+  // ser idéntica a la del duelo original (que tampoco consultó el clima)
+  if (!netActive() && !replayActive() && clima && rnd() < 0.55) {
     destino = DESTINOS.find(d => d.id === clima.destinoId) || DESTINOS[0];
     destinoPorClima = true;
   } else {
@@ -256,6 +262,7 @@ function finishMatch() {
   if (netActive()) {       // online: el resultado va al ranking del servidor
     netReportResult(winner);
     netRematch = { mine: false, theirs: false, gone: false };   // se abre la oferta de revancha
+    netPublishReplay(winner === p1 ? 0 : 1, netResult ? netResult.score : 0);   // lado 0 graba el duelo
     pendingScore = null;
     return;
   }

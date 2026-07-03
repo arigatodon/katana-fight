@@ -56,6 +56,11 @@ const WIN_ROUNDS = 2;          // rondas para ganar un duelo (mejor de 3)
 const VIDA_MAX = 100;
 const RUN_FIGHTS = 6;          // torneo: 5 duelos al azar + el jefe secreto
 
+// versión de la simulación/protocolo: súbela cuando cambie CUALQUIER cosa
+// que afecte el resultado de la pelea (mecánicas, bits de input, RNG…) —
+// un replay o un rival de otra versión calcularía una pelea distinta
+const GAME_VER = 1;
+
 // ---------------- Controles remapeables ----------------
 // teclas por defecto de cada jugador; se guardan junto al save
 const KEYMAP_DEFAULT = {

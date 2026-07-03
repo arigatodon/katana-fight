@@ -68,6 +68,7 @@ function keymapLibre(code) {
 // lectura por jugador durante el combate (teclas remapeables en save.keymap)
 function readInput(p, isP1, foe, dt) {
   if (netPlaying()) return unpackInput(net.frame[isP1 ? 0 : 1]);
+  if (replayActive()) return unpackInput(replay.frame[isP1 ? 0 : 1]);   // replay grabado
   if (p.isCPU) return updateAI(p, foe, dt);
   const m = isP1 ? save.keymap.p1 : save.keymap.p2;
   if (isP1) {

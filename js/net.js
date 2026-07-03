@@ -24,6 +24,7 @@ let net = null;               // null = sin partida online
 let netResult = null;         // resultado del último duelo online (para matchEnd)
 let netRank = null;           // ranking en línea: { fase, rows }
 let netRematch = null;        // oferta de revancha en matchEnd: { mine, theirs, gone }
+let netReplayId = null;       // id del replay publicado del último duelo online
 
 function netActive() { return net !== null && net.fase !== 'error'; }
 function netPlaying() { return net !== null && net.fase === 'jugando'; }
@@ -111,8 +112,10 @@ function netConnect(name, code) {
     myName: name || 'ANÓNIMO', foeName: '???',
     code: code || null,
     tick: 0, frame: [0, 0], inputs: [new Map(), new Map()],
+    rec: [[], []],            // inputs consumidos por tic (para publicar el replay)
     stallT: 0,
   };
+  netReplayId = null;
   let ws;
   try { ws = new WebSocket(netUrl()); }
   catch (e) { netFail('no se pudo abrir la conexión'); return; }
@@ -151,8 +154,9 @@ function netMsg(m) {
     net.myChar = null; net.foeChar = null;
     net.tick = 0; net.frame = [0, 0];
     net.inputs = [new Map(), new Map()];
+    net.rec = [[], []];
     net.stallT = 0;
-    netResult = null; netRematch = null;
+    netResult = null; netRematch = null; netReplayId = null;
     vsCPU = false; modoFinal = false;
     run = null; runOver = null; runVirtud = null;
     chooseSel = 0; choosingP = 0;
@@ -165,6 +169,8 @@ function netMsg(m) {
     net.inputs[1 - net.side].set(m.k, m.v);
   } else if (m.t === 'rematch') {     // el rival pide revancha
     if (netRematch) { netRematch.theirs = true; sfxSelect(); }
+  } else if (m.t === 'replayId') {    // el lado 0 publicó el replay y comparte el id
+    netReplayId = String(m.id || '').replace(/[^a-z0-9_-]/gi, '').slice(0, 32) || null;
   } else if (m.t === 'salaCaduca') {  // nadie llegó a la sala privada
     netFail('nadie llegó a la sala — vuelve a intentarlo');
   } else if (m.t === 'bye') {
@@ -242,6 +248,55 @@ function unpackInput(v) {
   };
 }
 
+// ---------------- Replays ----------------
+// codificación RLE de los streams de input (muy repetitivos): [valor, veces, …]
+function rleEncode(arr) {
+  const out = [];
+  let i = 0;
+  while (i < arr.length) {
+    const v = arr[i];
+    let n = 1;
+    while (i + n < arr.length && arr[i + n] === v) n++;
+    out.push(v, n);
+    i += n;
+  }
+  return out;
+}
+
+function rleDecode(rle) {
+  const out = [];
+  for (let i = 0; i + 1 < rle.length; i += 2) {
+    for (let n = 0; n < rle[i + 1]; n++) out.push(rle[i]);
+  }
+  return out;
+}
+
+function replayLink(id) {
+  if (!/^https?:/.test(location.protocol)) return '?replay=' + id;
+  return location.origin + location.pathname + '?replay=' + id;
+}
+
+// al terminar el duelo, el lado 0 publica el replay (semilla + inputs) y
+// comparte el id con el rival; es corto gracias al RLE y al determinismo
+function netPublishReplay(winnerSide, score) {
+  if (!net || net.side !== 0 || typeof fetch === 'undefined') return;
+  const data = {
+    v: GAME_VER, seed: net.seed,
+    chars: [net.myChar, net.foeChar],           // por lado: 0 = yo (soy el lado 0)
+    names: [net.myName, net.foeName],
+    winner: winnerSide, score,
+    inputs: [rleEncode(net.rec[0]), rleEncode(net.rec[1])],
+  };
+  fetch(netHttpBase() + '/replay', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  }).then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
+    .then(d => {
+      if (d.ok && d.id) { netReplayId = d.id; netSend({ t: 'replayId', id: d.id }); }
+    })
+    .catch(() => {});
+}
+
 // avanza la simulación tantos tics como permitan dtAcc y los
 // inputs recibidos del rival; devuelve el dtAcc restante
 function netPump(acc, realDt) {
@@ -260,6 +315,8 @@ function netPump(acc, realDt) {
     }
     net.stallT = 0;
     net.frame = [net.inputs[0].get(T), net.inputs[1].get(T)];
+    net.rec[0].push(net.frame[0]);        // memoria del duelo (replay)
+    net.rec[1].push(net.frame[1]);
     update(FIXED_DT);
     net.inputs[0].delete(T);
     net.inputs[1].delete(T);

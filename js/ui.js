@@ -60,17 +60,37 @@ function toggleFullscreen() {
   }
 }
 
-// tabla de récords: una pestaña por modo de juego
+// tabla de récords: una pestaña por modo de juego (+ duelos grabados)
 const RANK_TABS = [
   { id: 'torneo', label: 'ARCADE' },
   { id: 'final',  label: 'GOLPE FINAL' },
   { id: 'online', label: 'EN LÍNEA' },
+  { id: 'duelos', label: 'DUELOS' },
 ];
 let rankTab = 0;
+let rankTabX = i => W / 2 + (i - (RANK_TABS.length - 1) / 2) * 195;
+
+// duelos grabados recientes (replays del servidor), los mejores primero
+let netReplays = null;         // { fase, rows }
+let duelSel = 0;
+
+function fetchNetReplays() {
+  netReplays = { fase: 'cargando', rows: [] };
+  duelSel = 0;
+  fetch(netHttpBase() + '/replays')
+    .then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
+    .then(rows => {
+      rows = rows.filter(r => r.v === GAME_VER);        // solo replays de esta era
+      rows.sort((a, b) => b.score - a.score);           // los duelos más brillantes arriba
+      netReplays = { fase: 'ok', rows };
+    })
+    .catch(() => { netReplays = { fase: 'error', rows: [] }; });
+}
 
 function setRankTab(i) {
   rankTab = (i + RANK_TABS.length) % RANK_TABS.length;
   if (RANK_TABS[rankTab].id === 'online') fetchNetRanking();
+  if (RANK_TABS[rankTab].id === 'duelos') fetchNetReplays();
 }
 
 // enlaces del título (también vale el footer HTML en escritorio)
@@ -312,6 +332,12 @@ function cycleChar(c, d) {
 // ---------------- Entrada de menús ----------------
 function handleMenus() {
   for (const code of keyPressQueue) {
+    if (replay) {              // el replay captura todas las teclas
+      if (scene === 'matchEnd') {
+        if (code === 'Enter' || code === 'Space' || code === 'Escape') { sfxConfirm(); replayLeave(); }
+      } else replayHandleKey(code);
+      continue;
+    }
     if (scene === 'title') {
       if (code === 'KeyW' || code === 'ArrowUp')   { menuSel = (menuSel + TITLE_OPTS.length - 1) % TITLE_OPTS.length; sfxSelect(); }
       if (code === 'KeyS' || code === 'ArrowDown') { menuSel = (menuSel + 1) % TITLE_OPTS.length; sfxSelect(); }
@@ -405,10 +431,22 @@ function handleMenus() {
     } else if (scene === 'ranking') {
       if (code === 'KeyA' || code === 'ArrowLeft')  { setRankTab(rankTab - 1); sfxSelect(); }
       if (code === 'KeyD' || code === 'ArrowRight') { setRankTab(rankTab + 1); sfxSelect(); }
-      if (code === 'Enter' || code === 'Space' || code === 'Escape') { sfxConfirm(); scene = 'title'; }
+      const enDuelos = RANK_TABS[rankTab].id === 'duelos' && netReplays && netReplays.rows.length;
+      if (enDuelos) {          // pestaña DUELOS: elegir un replay y verlo
+        const n = netReplays.rows.length;
+        if (code === 'KeyW' || code === 'ArrowUp')   { duelSel = (duelSel + n - 1) % n; sfxSelect(); }
+        if (code === 'KeyS' || code === 'ArrowDown') { duelSel = (duelSel + 1) % n; sfxSelect(); }
+        if (code === 'Enter' || code === 'Space') { sfxConfirm(); location.href = replayLink(netReplays.rows[duelSel].id); }
+        if (code === 'Escape') { sfxConfirm(); scene = 'title'; }
+      } else if (code === 'Enter' || code === 'Space' || code === 'Escape') { sfxConfirm(); scene = 'title'; }
     }
   }
   for (const tp of tapQueue) {
+    if (replay) {              // replay: toque = pausa · esquina ✕ o matchEnd = salir
+      if (scene === 'matchEnd' || (tp.y < 44 && tp.x > W - 60)) { sfxConfirm(); replayLeave(); }
+      else { replay.paused = !replay.paused; sfxSelect(); }
+      continue;
+    }
     if (scene === 'title') {
       if (tp.y < 34) {        // enlaces de las esquinas superiores
         if (tp.x < 120) { window.open(LINK_HOME, '_blank'); continue; }
@@ -482,6 +520,10 @@ function handleMenus() {
       sfxConfirm(); netLeave2Title();
     } else if (scene === 'matchEnd') {
       if (netActive() || netResult) {
+        if (netReplayId && tp.y > H * 0.91) {   // abrir el replay del duelo
+          window.open(replayLink(netReplayId), '_blank');
+          continue;
+        }
         const vivo = netActive() && netRematch && !netRematch.gone;
         if (vivo) {
           // dos botones: REVANCHA arriba, SALIR abajo (mismas alturas que el dibujo)
@@ -515,8 +557,18 @@ function handleMenus() {
     } else if (scene === 'ranking') {
       let hit = false;
       for (let i = 0; i < RANK_TABS.length; i++) {
-        if (Math.abs(tp.x - (W / 2 + (i - 1) * 240)) < 110 && Math.abs(tp.y - 96) < 22) {
+        if (Math.abs(tp.x - rankTabX(i)) < 92 && Math.abs(tp.y - 96) < 22) {
           setRankTab(i); sfxSelect(); hit = true;
+        }
+      }
+      // pestaña DUELOS: tocar una fila abre ese replay
+      if (!hit && RANK_TABS[rankTab].id === 'duelos' && netReplays) {
+        for (let i = 0; i < netReplays.rows.length; i++) {
+          if (Math.abs(tp.y - (166 + i * 30)) < 14) {
+            sfxConfirm();
+            location.href = replayLink(netReplays.rows[i].id);
+            hit = true;
+          }
         }
       }
       if (!hit) { sfxConfirm(); scene = 'title'; }
@@ -1040,6 +1092,9 @@ function drawMatchEnd(t) {
 
 // opciones del final de un duelo online: revancha o salir
 function drawNetMatchEndOpts(t) {
+  if (netReplayId) {
+    drawCenterText(`巻 duelo grabado: ${replayLink(netReplayId)}`, 11, H * 0.945, '#776', 'transparent');
+  }
   const vivo = netActive() && netRematch && !netRematch.gone;
   if (!vivo) {
     drawCenterText('TU RIVAL SE FUE', 15, H * 0.7, '#998', 'transparent');
@@ -1135,11 +1190,12 @@ function drawRanking(t) {
     const sel = rankTab === i;
     ctx.font = (sel ? 'bold 16px' : '14px') + ' "Courier New", monospace';
     ctx.fillStyle = sel ? '#e8c050' : '#776';
-    ctx.fillText((sel ? '« ' : '') + RANK_TABS[i].label + (sel ? ' »' : ''), W / 2 + (i - 1) * 240, 100);
+    ctx.fillText((sel ? '« ' : '') + RANK_TABS[i].label + (sel ? ' »' : ''), rankTabX(i), 100);
   }
 
   const cat = RANK_TABS[rankTab].id;
   if (cat === 'online') drawRankRowsOnline(t);
+  else if (cat === 'duelos') drawRankRowsDuelos(t);
   else drawRankRowsLocal(save.rankings[cat]);
 
   ctx.textAlign = 'left';
@@ -1167,6 +1223,37 @@ function drawRankRowsLocal(tabla) {
     const row = `${String(i + 1).padStart(2)}  ${r.firma.padEnd(5)} ${String(r.score).padStart(8)}  ${String(r.racha).padStart(4)}   ${(r.fecha || '').padEnd(10)}  ${r.titulo || ''}`;
     ctx.fillText(row, W / 2, y);
   }
+}
+
+// duelos grabados (replays): los mejores duelos en línea recientes
+function drawRankRowsDuelos(t) {
+  if (!netReplays || netReplays.fase === 'cargando') {
+    const dots = '.'.repeat(1 + (Math.floor(t * 2) % 3));
+    drawCenterText('desempolvando los pergaminos ' + dots, 16, H * 0.52, '#c0b8a8', 'transparent');
+    return;
+  }
+  if (netReplays.fase === 'error') {
+    drawCenterText('no se pudo alcanzar el servidor', 16, H * 0.52, '#ff8a7a', 'transparent');
+    return;
+  }
+  if (!netReplays.rows.length) {
+    drawCenterText('aún no hay duelos grabados — juega en línea y el tuyo quedará aquí', 15, H * 0.52, '#776', 'transparent');
+    return;
+  }
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 13px "Courier New", monospace';
+  ctx.fillStyle = '#998';
+  ctx.fillText('巻 DUELOS MEMORABLES — los mejores duelos en línea recientes', W / 2, 138);
+  for (let i = 0; i < netReplays.rows.length; i++) {
+    const r = netReplays.rows[i];
+    const y = 166 + i * 30;
+    const sel = duelSel === i;
+    ctx.font = (sel ? 'bold 15px' : '13px') + ' "Courier New", monospace';
+    ctx.fillStyle = sel ? '#e8c050' : i < 3 ? '#d8c8a0' : '#b0a890';
+    const vencedor = r.names[r.winner], vencido = r.names[1 - r.winner];
+    ctx.fillText(`${sel ? '» ' : '  '}${vencedor} vence a ${vencido} · ${r.score} pts · ${r.fecha}${sel ? ' «' : ''}`, W / 2, y);
+  }
+  drawCenterText(TOUCH ? 'toca un duelo para revivirlo' : 'W/S elegir · ENTER revivir el duelo', 13, H * 0.86, '#9ad0e8', 'transparent');
 }
 
 // filas del ranking en línea (lo sirve el servidor: GET /ranking)
