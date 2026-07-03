@@ -255,6 +255,7 @@ function finishMatch() {
   const winner = matchWinner;
   if (netActive()) {       // online: el resultado va al ranking del servidor
     netReportResult(winner);
+    netRematch = { mine: false, theirs: false, gone: false };   // se abre la oferta de revancha
     pendingScore = null;
     return;
   }

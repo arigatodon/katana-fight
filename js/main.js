@@ -51,7 +51,9 @@ function loop(ts) {
   dtAcc += frameDt;
   lastTime = t;
   handleMenus();
-  if (netPlaying()) {
+  // en matchEnd el duelo ya terminó: se deja de bombear el lockstep para no
+  // enviar inputs viejos que contaminarían el mapa de una posible revancha
+  if (netPlaying() && scene !== 'matchEnd') {
     dtAcc = netPump(dtAcc, frameDt);   // online: avanza solo con inputs de ambos
   } else {
     while (dtAcc >= FIXED_DT) {

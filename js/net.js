@@ -23,6 +23,7 @@ const NET_MAX_CATCHUP = 8;    // máx tics simulados por frame al ponerse al dí
 let net = null;               // null = sin partida online
 let netResult = null;         // resultado del último duelo online (para matchEnd)
 let netRank = null;           // ranking en línea: { fase, rows }
+let netRematch = null;        // oferta de revancha en matchEnd: { mine, theirs, gone }
 
 function netActive() { return net !== null && net.fase !== 'error'; }
 function netPlaying() { return net !== null && net.fase === 'jugando'; }
@@ -98,7 +99,11 @@ function netConnect(name) {
   ws.onerror = () => { if (net && net.fase !== 'jugando') netFail('no se encontró el servidor'); };
   ws.onclose = () => {
     if (net && net.fase !== 'error') {
-      if (scene === 'matchEnd') { netLeave(); return; }   // el duelo ya terminó
+      if (scene === 'matchEnd') {                         // el duelo ya terminó
+        if (netRematch) netRematch.gone = true;           // adiós a la revancha
+        netLeave();
+        return;
+      }
       netFail(net.fase === 'jugando' ? 'se perdió la conexión' : 'el servidor cerró la conexión');
     }
   };
@@ -109,11 +114,18 @@ function netSend(m) { if (net && net.ws && net.ws.readyState === 1) net.ws.send(
 
 function netMsg(m) {
   if (!net) return;
-  if (m.t === 'match') {              // rival encontrado: a elegir guerrero
+  if (m.t === 'match') {              // rival encontrado (o revancha): a elegir guerrero
     net.side = m.side;
     net.seed = m.seed >>> 0;
     net.foeName = String(m.foe || '???').slice(0, 12).toUpperCase() || '???';
     net.fase = 'eligiendo';
+    // reinicio completo del lockstep: en una revancha quedarían tics e
+    // inputs de la partida anterior y las simulaciones divergirían
+    net.myChar = null; net.foeChar = null;
+    net.tick = 0; net.frame = [0, 0];
+    net.inputs = [new Map(), new Map()];
+    net.stallT = 0;
+    netResult = null; netRematch = null;
     vsCPU = false; modoFinal = false;
     run = null; runOver = null; runVirtud = null;
     chooseSel = 0; choosingP = 0;
@@ -124,10 +136,22 @@ function netMsg(m) {
     netMaybeStart();
   } else if (m.t === 'i') {
     net.inputs[1 - net.side].set(m.k, m.v);
+  } else if (m.t === 'rematch') {     // el rival pide revancha
+    if (netRematch) { netRematch.theirs = true; sfxSelect(); }
   } else if (m.t === 'bye') {
-    if (scene === 'matchEnd') netLeave();         // duelo ya terminado: sin drama
-    else netFail('el rival se desconectó');
+    if (scene === 'matchEnd') {                   // duelo ya terminado: sin drama
+      if (netRematch) netRematch.gone = true;
+      netLeave();
+    } else netFail('el rival se desconectó');
   }
+}
+
+// pedir revancha desde matchEnd; si el rival ya la pidió, el servidor
+// re-empareja al instante con semilla nueva
+function netAskRematch() {
+  if (!netActive() || !netRematch || netRematch.gone || netRematch.mine) return;
+  netRematch.mine = true;
+  netSend({ t: 'rematch' });
 }
 
 // el jugador local confirmó su guerrero (lo llama confirmChoose)

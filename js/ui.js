@@ -329,10 +329,18 @@ function handleMenus() {
     } else if (scene === 'online') {
       if (code === 'Enter' || code === 'Space' || code === 'Escape') { sfxConfirm(); netLeave2Title(); }
     } else if (scene === 'matchEnd') {
-      if (code === 'Enter' || code === 'Space') {
+      if (netActive() || netResult) {
+        // online: ENTER pide revancha (si el rival sigue ahí), ESC sale
+        const vivo = netActive() && netRematch && !netRematch.gone;
+        if (code === 'Enter' || code === 'Space') {
+          sfxConfirm();
+          if (vivo) netAskRematch();
+          else leaveNetMatch();
+        }
+        if (code === 'Escape') { sfxConfirm(); leaveNetMatch(); }
+      } else if (code === 'Enter' || code === 'Space') {
         sfxConfirm();
-        if (netActive() || netResult) leaveNetMatch();
-        else continueRun();
+        continueRun();
       }
     } else if (scene === 'apoyo') {
       const n = apoyoOpts().length;
@@ -419,9 +427,17 @@ function handleMenus() {
     } else if (scene === 'online') {
       sfxConfirm(); netLeave2Title();
     } else if (scene === 'matchEnd') {
-      sfxConfirm();
-      if (netActive() || netResult) leaveNetMatch();
-      else continueRun();
+      if (netActive() || netResult) {
+        const vivo = netActive() && netRematch && !netRematch.gone;
+        if (vivo) {
+          // dos botones: REVANCHA arriba, SALIR abajo (mismas alturas que el dibujo)
+          if (Math.abs(tp.y - H * 0.72) < 18) { sfxConfirm(); netAskRematch(); }
+          else if (Math.abs(tp.y - H * 0.82) < 18) { sfxConfirm(); leaveNetMatch(); }
+        } else { sfxConfirm(); leaveNetMatch(); }
+      } else {
+        sfxConfirm();
+        continueRun();
+      }
     } else if (scene === 'apoyo') {
       const opts = apoyoOpts();
       for (let i = 0; i < opts.length; i++) {
@@ -458,6 +474,7 @@ function handleMenus() {
 function leaveNetMatch() {
   netLeave();
   netResult = null;
+  netRematch = null;
   setRankTab(RANK_TABS.findIndex(tb => tb.id === 'online'));
   scene = 'ranking';
 }
@@ -923,9 +940,32 @@ function drawMatchEnd(t) {
     }
   }
 
-  if (Math.sin(t * 4) > -0.3) {
+  if (netResult || netActive()) {
+    drawNetMatchEndOpts(t);
+  } else if (Math.sin(t * 4) > -0.3) {
     drawCenterText(TOUCH ? 'toca para continuar' : 'ENTER para continuar', 15, H * 0.82, '#c0b8a8', 'transparent');
   }
+}
+
+// opciones del final de un duelo online: revancha o salir
+function drawNetMatchEndOpts(t) {
+  const vivo = netActive() && netRematch && !netRematch.gone;
+  if (!vivo) {
+    drawCenterText('TU RIVAL SE FUE', 15, H * 0.7, '#998', 'transparent');
+    if (Math.sin(t * 4) > -0.3) {
+      drawCenterText(TOUCH ? 'toca para continuar' : 'ENTER para continuar', 15, H * 0.82, '#c0b8a8', 'transparent');
+    }
+    return;
+  }
+  if (netRematch.mine) {
+    drawCenterText('revancha pedida — esperando al rival…', 14, H * 0.66, '#9ad0e8', 'transparent');
+  } else if (netRematch.theirs && Math.sin(t * 6) > -0.5) {
+    drawCenterText('¡tu rival pide revancha!', 14, H * 0.66, '#e8c050', 'transparent');
+  }
+  drawCenterText(
+    netRematch.mine ? 'REVANCHA ✓' : (TOUCH ? 'REVANCHA — toca aquí' : 'REVANCHA — ENTER'),
+    17, H * 0.72, netRematch.mine ? '#6a9a6a' : '#e8c050', 'transparent');
+  drawCenterText(TOUCH ? 'SALIR — toca aquí' : 'SALIR — ESC', 15, H * 0.82, '#c0b8a8', 'transparent');
 }
 
 // gracias por jugar: donar o dejar un comentario antes del puntaje

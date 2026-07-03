@@ -112,6 +112,91 @@ try:
         wait_for(B, "scene === 'online' || scene === 'title'", 8000)
         check('aviso de desconexión', True, '· mensaje: ' + str(B.evaluate('net && net.error')))
 
+        # ---- revancha: dos duelos completos seguidos sin reconectar ----
+        # (solo contra el server local: termina duelos de verdad y anota ranking)
+        if server:
+            def machacar_hasta(pg_atk, pg_def, escena, deadline=150):
+                """el atacante avanza y corta en bucle hasta que ambos llegan a la escena"""
+                fin = time.time() + deadline
+                while time.time() < fin:
+                    if pg_atk.evaluate('scene') == escena and pg_def.evaluate('scene') == escena:
+                        return True
+                    pg_atk.keyboard.down('d'); time.sleep(0.45); pg_atk.keyboard.up('d')
+                    pg_atk.keyboard.press('f'); time.sleep(0.35)
+                return False
+
+            def comparar_snaps(pa, pb, etiqueta, minimo=200):
+                sa, sb = pa.evaluate('window.__snap'), pb.evaluate('window.__snap')
+                com = sorted(set(sa) & set(sb), key=int)
+                ig = sum(1 for k in com if sa[k] == sb[k])
+                check(f'tics comparados ({etiqueta})', len(com) > minimo, f'{len(com)} tics')
+                check(f'simulaciones idénticas ({etiqueta})', ig == len(com), f'{ig}/{len(com)}')
+                if ig != len(com):
+                    k0 = next(k for k in com if sa[k] != sb[k])
+                    fallos.append(f'  desvío ({etiqueta}) tic {k0}:\n   A: {sa[k0]}\n   B: {sb[k0]}')
+
+            RA, RB = browser.new_page(), browser.new_page()
+            RA.goto(URL); RB.goto(URL)
+            for pg, nombre in ((RA, 'REMA'), (RB, 'REMB')):
+                pg.wait_for_function("typeof scene !== 'undefined' && scene === 'title'")
+                pg.keyboard.press('ArrowDown'); pg.keyboard.press('Enter')
+                wait_for(pg, "scene === 'nombre'")
+                pg.fill('#nameInput', nombre); pg.keyboard.press('Enter')
+            wait_for(RA, "scene === 'choose'"); wait_for(RB, "scene === 'choose'")
+            semilla1 = RA.evaluate('net.seed')
+            lados1 = [RA.evaluate('net.side'), RB.evaluate('net.side')]
+            for pg in (RA, RB): pg.evaluate(SNAP_HOOK)
+            RA.keyboard.press('Enter')
+            RB.keyboard.press('d'); RB.keyboard.press('Enter')
+            wait_for(RA, "scene === 'fight'", 25000); wait_for(RB, "scene === 'fight'", 25000)
+            wait_for(RA, "roundStartTimer <= 0", 10000)
+
+            # duelo 1 completo: REMA machaca, REMB no se defiende
+            check('duelo 1 terminado', machacar_hasta(RA, RB, 'matchEnd'))
+            comparar_snaps(RA, RB, 'duelo 1')
+            check('resultado en ambos', RA.evaluate('netResult !== null') and RB.evaluate('netResult !== null'))
+            check('oferta de revancha abierta',
+                  RA.evaluate('netRematch && !netRematch.gone') and RB.evaluate('netRematch && !netRematch.gone'))
+
+            # REMB pide primero; REMA debe ver el aviso y aceptar
+            RB.keyboard.press('Enter')
+            wait_for(RA, 'netRematch && netRematch.theirs === true', 8000)
+            check('aviso de revancha al rival', True)
+            RA.keyboard.press('Enter')
+            wait_for(RA, "scene === 'choose'", 8000); wait_for(RB, "scene === 'choose'", 8000)
+            semilla2 = RA.evaluate('net.seed')
+            check('semilla nueva en la revancha',
+                  semilla2 == RB.evaluate('net.seed') and semilla2 != semilla1,
+                  f'{semilla1} → {semilla2}')
+            check('lados conservados', [RA.evaluate('net.side'), RB.evaluate('net.side')] == lados1)
+            check('lockstep limpio para la revancha',
+                  RA.evaluate('net.tick === 0 && net.inputs[0].size === 0 && net.inputs[1].size === 0'))
+
+            # duelo 2 (la revancha) también completo y tic a tic idéntico
+            for pg in (RA, RB): pg.evaluate(SNAP_HOOK)
+            RA.keyboard.press('Enter')
+            RB.keyboard.press('d'); RB.keyboard.press('Enter')
+            wait_for(RA, "scene === 'fight'", 25000); wait_for(RB, "scene === 'fight'", 25000)
+            wait_for(RA, "roundStartTimer <= 0", 10000)
+            check('duelo 2 (revancha) terminado', machacar_hasta(RA, RB, 'matchEnd'))
+            comparar_snaps(RA, RB, 'revancha')
+
+            # ambos duelos anotados por separado en el ranking
+            rows = RB.evaluate("fetch(netHttpBase() + '/ranking').then(r => r.json())")
+            ganadas = sum(r['wins'] for r in rows if r['name'] in ('REMA', 'REMB'))
+            check('dos duelos anotados en /ranking', ganadas == 2, f'{ganadas} victorias')
+
+            # el rival se va durante la oferta: REMA debe verlo y poder salir
+            RA.keyboard.press('Enter')          # REMA pide revancha…
+            wait_for(RA, 'netRematch && netRematch.mine === true', 5000)
+            RB.close()                          # …y REMB cierra la pestaña
+            wait_for(RA, 'netRematch && netRematch.gone === true', 8000)
+            check('rival ido durante la oferta', True)
+            RA.keyboard.press('Enter')
+            wait_for(RA, "scene === 'ranking'", 5000)
+            check('salida limpia al ranking', True)
+            RA.close()
+
         # ranking en línea: dos sockets se emparejan, ambos reportan el
         # mismo resultado y el ganador debe aparecer en GET /ranking
         # (solo contra el server local: no ensucia un ranking real)

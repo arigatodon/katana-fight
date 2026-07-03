@@ -424,12 +424,34 @@ function pair(a, b, modo) {
   b.peer = a;
   a.side = 0;
   b.side = 1;
+  a.rematch = b.rematch = false;
   a.match = b.match = { reports: [null, null], names: [a.name, b.name], recorded: false };
   const seed = Math.floor(Math.random() * 0xffffffff);
   a.send(JSON.stringify({ t: 'match', side: 0, seed, foe: b.name }));
   b.send(JSON.stringify({ t: 'match', side: 1, seed, foe: a.name }));
   const etq = modo === 'beat' ? 'co-op beat' : 'duelo';
   console.log(new Date().toISOString(), `${etq} emparejado: ${a.name} vs ${b.name} (semilla ${seed})`);
+}
+
+// Revancha: ambos jugadores siguen conectados tras el duelo; cuando los dos
+// la piden, el servidor reusa el par (mismos lados) con semilla NUEVA y un
+// registro de resultado limpio. Si solo la pide uno, se avisa al rival.
+function askRematch(ws) {
+  const peer = ws.peer;
+  if (!peer) return;
+  ws.rematch = true;
+  if (!peer.rematch) {
+    if (peer.readyState === 1) peer.send('{"t":"rematch"}');
+    return;
+  }
+  ws.rematch = peer.rematch = false;
+  const a = ws.side === 0 ? ws : peer;
+  const b = a === ws ? peer : ws;
+  a.match = b.match = { reports: [null, null], names: [a.name, b.name], recorded: false };
+  const seed = Math.floor(Math.random() * 0xffffffff);
+  a.send(JSON.stringify({ t: 'match', side: 0, seed, foe: b.name }));
+  b.send(JSON.stringify({ t: 'match', side: 1, seed, foe: a.name }));
+  console.log(new Date().toISOString(), `revancha: ${a.name} vs ${b.name} (semilla ${seed})`);
 }
 
 wss.on('connection', ws => {
@@ -464,6 +486,8 @@ wss.on('connection', ws => {
     if (raw.length > RELAY_MAX) return;        // los snapshots del co-op caben de sobra
     // resultado del duelo: lo anota el servidor, no se reenvía
     if (raw.startsWith('{"t":"result"')) { recordResult(ws, raw); return; }
+    // petición de revancha: el servidor la gestiona (no es un relé ciego)
+    if (raw.startsWith('{"t":"rematch"')) { askRematch(ws); return; }
     // emparejado: relé directo al rival/compañero, sin mirar el contenido
     if (ws.peer.readyState === 1) ws.peer.send(raw);
   });
