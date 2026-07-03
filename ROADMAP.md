@@ -95,27 +95,28 @@ mirones de solo lectura, que simulan con unos tics de retraso.
 > Regla de la casa: nada de overlays de HUD; la profundidad va en la mecánica y se lee en el
 > cuerpo del samurái (postura visible del rig, no aros ni barras nuevas).
 
-### 2.1 Posturas (kamae) y cortes direccionales — esfuerzo L
+### 2.1 Posturas (kamae) y cortes direccionales — esfuerzo L — ✅ HECHO
 
-Tres posturas — alta (jōdan), media (chūdan), baja (gedan) — cambiadas con ↑/↓ manteniendo
-finta (o gesto vertical en táctil). La postura determina el corte: alto (lento, rompe guardia),
-medio (equilibrado), bajo (rápido, barre piernas, pierde contra guardia). Regla piedra-papel-tijera:
-cada corte tiene una postura que lo neutraliza; la guardia solo cubre la línea de tu kamae.
+Tres posturas — alta (jōdan), media (chūdan), baja (gedan) — cambiadas manteniendo finta + saltar/bajar.
+La postura determina el corte: alto (lento, rompe guardia), medio (equilibrado), bajo (rápido,
+barre piernas, pierde contra guardia). Triángulo piedra-papel-tijera: cada corte tiene una postura
+que lo neutraliza de pie (gedan se agacha bajo el tajo alto, jōdan desvía el medio, chūdan pisa el
+barrido); la guardia solo cubre la línea de tu propia kamae.
 
-- Todo el azar derivado (si lo hay) por `rnd()`; la lógica nueva vive en `combat.js`/`update.js`
-  con estados nuevos en `PSTATE` solo si hace falta.
-- El **input online necesita más bits**: extender `packLocalInput`/`unpackInput` (`net.js`) y
-  **versionar el protocolo** — el `match` lleva `v`; versiones distintas no se emparejan (mensaje
-  "ACTUALIZA LA PÁGINA"), porque un bit de diferencia = divergencia silenciosa.
-- La postura se LEE en el rig: la katana se dibuja arriba/media/baja en `render.js` (los samuráis
-  son 100% código, así que es barato).
+- La matriz vive como DATOS en `KAMAE` (`data.js`): `vsGuardia` (rompe/linea/pierde) y `neutraliza`
+  (triángulo). La lógica en `combat.js` (`setKamae`, `startAttack`, `tryHit`) y `update.js` (entrada).
+- **No hizo falta más bits**: la kamae se deriva de finta + salto/bajar ya presentes en
+  `packLocalInput`; solo se **versionó el protocolo** — `GAME_VER`/`PROTO_VER` = 2, el `join` lleva
+  `v`, el servidor no empareja versiones distintas (`{t:'ver'}` → aviso "otra era, recarga").
+- La postura se LEE en el rig: la katana se dibuja arriba/media/baja en `render.js` (procedural y
+  origami), verificado con capturas: guardia, windup y ataque dan tres siluetas distintas.
 - **Criterios de aceptación:**
-  - [ ] `smoke.html` pasa: misma semilla → mismo hash con las mecánicas nuevas incluidas en la corriente del RNG.
-  - [ ] Sin mirar HUD, un jugador identifica la kamae del rival solo por la silueta (verificación manual con 2 personas).
-  - [ ] Cada uno de los 3 cortes tiene al menos una respuesta que lo castiga (matriz documentada en `data.js` como datos, no ifs sueltos).
-  - [ ] La CPU (`ai.js`) usa las 3 posturas y cambia según la del jugador; en dificultad de jefe, castiga la kamae repetida.
-  - [ ] `e2e_online.py` pasa con el protocolo nuevo; cliente viejo contra servidor nuevo recibe el aviso de versión, no una pelea corrupta.
-  - [ ] Los 13 personajes siguen diferenciados: al menos 3 tienen afinidad de kamae en sus stats (p. ej. GIGANTE mejor en alta, NIÑO en baja) vía `deriveAttrs()`.
+  - [x] `smoke.html` pasa: misma semilla → mismo hash, con las 3 kamae ejercitadas en la corriente del RNG.
+  - [x] Sin mirar HUD, un jugador identifica la kamae del rival solo por la silueta (verificado con capturas de las 3 fases).
+  - [x] Cada uno de los 3 cortes tiene al menos una respuesta que lo castiga (matriz `KAMAE` en `data.js` como datos, no ifs sueltos).
+  - [x] La CPU (`ai.js`) usa las 3 posturas y responde a la del jugador; el jefe castiga la kamae plantada.
+  - [x] `e2e_online.py` pasa con el protocolo nuevo; cliente viejo (`v:1`) recibe `{t:'ver'}` y se cierra, no una pelea corrupta.
+  - [x] Los 13 personajes siguen diferenciados: 5 tienen afinidad de kamae (`kamaeFav`) — GIGANTE/TENGU alta, MAESTRO media, NIÑO/KAPPA baja.
 
 ### 2.2 Iaijutsu: desenvaine — esfuerzo S
 

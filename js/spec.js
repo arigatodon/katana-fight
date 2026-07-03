@@ -37,6 +37,10 @@ function specInts(a) { return Array.isArray(a) ? a.map(v => v | 0) : []; }
 function specMsg(m) {
   if (!spec) return;
   if (m.t === 'watch') {            // el duelo (o su revancha): pasado + datos
+    if (m.v != null && (m.v | 0) !== GAME_VER) {
+      specFail('tu página es de otra era — recárgala (Ctrl+R) para mirar');
+      return;
+    }
     spec.seed = m.seed >>> 0;
     spec.names = [String((m.names && m.names[0]) || '???').slice(0, 12),
                   String((m.names && m.names[1]) || '???').slice(0, 12)];

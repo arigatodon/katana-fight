@@ -86,6 +86,15 @@ try:
         wait_for(A, "scene === 'fight' && roundStartTimer <= 0", 10000)
         wait_for(B, "scene === 'fight' && roundStartTimer <= 0", 10000)
 
+        # kamae: el lado 0 sube a jōdan (finta sostenida + ↑) y AMBOS lados lo ven
+        S0 = A if A.evaluate('net.side') == 0 else B
+        S0.keyboard.down('g'); time.sleep(0.25)
+        S0.keyboard.down('w'); time.sleep(0.25); S0.keyboard.up('w')
+        time.sleep(0.35)
+        S0.keyboard.up('g')
+        kA, kB = A.evaluate('p1.kamae'), B.evaluate('p1.kamae')
+        check('kamae sincronizada en ambos lados', kA == 0 and kB == 0, f'A ve {kA} · B ve {kB}')
+
         x0 = B.evaluate('p1.x')          # p1 visto por B, antes de que A se mueva
         A.keyboard.down('d'); time.sleep(0.9); A.keyboard.up('d')
         A.keyboard.press('f')            # golpe de A
@@ -321,7 +330,7 @@ try:
             rank = C.evaluate("""async () => {
               const mk = name => new Promise((res, rej) => {
                 const ws = new WebSocket(netUrl());
-                ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name }));
+                ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name, v: GAME_VER }));
                 ws.onmessage = ev => {
                   const m = JSON.parse(ev.data);
                   if (m.t === 'match') res({ ws, side: m.side, name });
@@ -362,6 +371,18 @@ try:
             check('comentario publicado y escapado',
                   '¡gran juego!' in com['html'] and '<script>x' not in com['html']
                   and 'TESTER' in com['html'])
+
+            # cliente de otra versión (página vieja cacheada): aviso, nunca emparejar
+            ver = C.evaluate("""async () => new Promise(res => {
+              const ws = new WebSocket(netUrl());
+              let msg = null, cerrado = false;
+              ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name: 'VIEJO', v: 1 }));
+              ws.onmessage = ev => { try { msg = JSON.parse(ev.data); } catch (e) {} };
+              ws.onclose = () => { cerrado = true; res({ msg, cerrado }); };
+              setTimeout(() => res({ msg, cerrado }), 4000);
+            })""")
+            check('cliente de otra versión: aviso y cierre',
+                  ver['msg'] and ver['msg'].get('t') == 'ver' and ver['cerrado'], json.dumps(ver))
             C.close()
 
             # ---- salas privadas: dos amigos con ?sala= + un intruso en la cola ----

@@ -58,8 +58,10 @@ const RUN_FIGHTS = 6;          // torneo: 5 duelos al azar + el jefe secreto
 
 // versión de la simulación/protocolo: súbela cuando cambie CUALQUIER cosa
 // que afecte el resultado de la pelea (mecánicas, bits de input, RNG…) —
-// un replay o un rival de otra versión calcularía una pelea distinta
-const GAME_VER = 1;
+// un replay o un rival de otra versión calcularía una pelea distinta.
+// DEBE coincidir con PROTO_VER en server/server.js.
+// v2: kamae (posturas de kenjutsu) y cortes direccionales
+const GAME_VER = 2;
 
 // ---------------- Controles remapeables ----------------
 // teclas por defecto de cada jugador; se guardan junto al save

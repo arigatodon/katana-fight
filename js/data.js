@@ -9,7 +9,31 @@ function pal(kimono, kimonoDark, hakama, hakamaDark, accent, skin, hair) {
   return { kimono, kimonoDark, hakama, hakamaDark, obi: '#3a2a22', accent, skin, hair };
 }
 
+// ---------------- Kamae (posturas de kenjutsu) ----------------
+// La postura del guerrero determina su corte, y la piedra-papel-tijera vive
+// AQUÍ como datos (no ifs regados por combat.js):
+//  · vsGuardia: qué pasa si el defensor guarda — 'rompe' = aunque la guardia
+//    esté en línea, muele la postura (solo el parry perfecto lo detiene);
+//    'linea' = solo lo bloquea la guardia de SU misma línea; 'pierde' =
+//    cualquier guardia lo para y el atacante queda vendido.
+//  · neutraliza: kamae del DEFENSOR (de pie, sin guardia) que desvía este
+//    corte y castiga al atacante. Es un TRIÁNGULO, no un espejo — la kamae
+//    por defecto (chūdan) NO neutraliza el corte por defecto, o un rival
+//    pasivo sería intocable: gedan se agacha bajo el tajo alto, jōdan
+//    desvía el corte medio con la hoja alzada, chūdan pisa el barrido.
+//  · La guardia solo cubre la línea de tu propia kamae.
+const KAMAE = [
+  { id: 'jodan',  name: 'JŌDAN',  kanji: '上段', desc: 'corte alto: lento, rompe guardias',
+    windupMul: 1.35, dmgMul: 1.20, vsGuardia: 'rompe',  neutraliza: 2, breakMul: 1.9 },
+  { id: 'chudan', name: 'CHŪDAN', kanji: '中段', desc: 'corte medio: equilibrado',
+    windupMul: 1.00, dmgMul: 1.00, vsGuardia: 'linea',  neutraliza: 0 },
+  { id: 'gedan',  name: 'GEDAN',  kanji: '下段', desc: 'corte bajo: veloz, barre piernas, pierde contra guardia',
+    windupMul: 0.70, dmgMul: 0.75, vsGuardia: 'pierde', neutraliza: 1, sweep: true },
+];
+
 // Estadísticas ocultas: corte, postura, agilidad, engano, reflejos, espiritu (0-40)
+// kamaeFav: línea favorita del personaje (0 jōdan · 1 chūdan · 2 gedan) —
+// sus cortes desde esa kamae salen algo más rápidos y fuertes (deriveAttrs)
 const CHARS = [
   { id: 'ronin', name: 'RONIN', kanji: '浪人', desc: 'Equilibrado en todo',
     stats: { corte: 20, postura: 20, agilidad: 20, engano: 20, reflejos: 20, espiritu: 20 },
@@ -17,7 +41,7 @@ const CHARS = [
 
   { id: 'maestro', name: 'VIEJO MAESTRO', kanji: '老師', desc: 'Especialista defensivo',
     stats: { corte: 15, postura: 35, agilidad: 10, engano: 10, reflejos: 30, espiritu: 30 },
-    head: 'viejo',
+    kamaeFav: 1, head: 'viejo',
     pal: pal('#9a9a8c', '#76766a', '#4a4a42', '#34342e', '#d8d0c0', '#d8b894', '#e8e4dc') },
 
   { id: 'bandido', name: 'BANDIDO', kanji: '盗賊', desc: 'Muy agresivo',
@@ -32,12 +56,12 @@ const CHARS = [
 
   { id: 'nino', name: 'NIÑO PRODIGIO', kanji: '神童', desc: 'Recuperación rápida, poco alcance',
     stats: { corte: 18, postura: 12, agilidad: 28, engano: 18, reflejos: 22, espiritu: 38 },
-    scale: 0.82, reachMul: 0.72, head: 'nino',
+    scale: 0.82, reachMul: 0.72, kamaeFav: 2, head: 'nino',
     pal: pal('#7ac0e8', '#5a98c0', '#28486a', '#1c3450', '#f0d050', '#ecc8a0', '#2a1c10') },
 
   { id: 'gigante', name: 'GIGANTE', kanji: '巨人', desc: 'Lento, rompe defensas',
     stats: { corte: 28, postura: 30, agilidad: 6, engano: 5, reflejos: 10, espiritu: 15 },
-    scale: 1.28, windupMul: 1.55, dmgMul: 1.15, breakMul: 2.4, head: 'gigante',
+    scale: 1.28, windupMul: 1.55, dmgMul: 1.15, breakMul: 2.4, kamaeFav: 0, head: 'gigante',
     pal: pal('#8a5a3a', '#6c4428', '#3a2e22', '#281f16', '#e0a040', '#c08858', '#0d0a08') },
 
   { id: 'cazadora', name: 'CAZADORA', kanji: '狩人', desc: 'Doble salto, menor daño',
@@ -63,12 +87,12 @@ const CHARS = [
 const SECRET_CHARS = [
   { id: 'gallina', name: 'TENGU', kanji: '天狗', desc: 'Yokai cuervo: salta altísimo y golpea desde el aire', secret: true,
     stats: { corte: 22, postura: 22, agilidad: 12, engano: 14, reflejos: 16, espiritu: 16 },
-    scale: 1.24, windupMul: 1.4, dmgMul: 1.12, breakMul: 2.0, jumpMul: 1.3, head: 'gallina',
+    scale: 1.24, windupMul: 1.4, dmgMul: 1.12, breakMul: 2.0, jumpMul: 1.3, kamaeFav: 0, head: 'gallina',
     pal: pal('#3a2a3a', '#281c28', '#7a1818', '#561010', '#e03020', '#c04030', '#1a1014') },
 
   { id: 'sapo', name: 'KAPPA', kanji: '河童', desc: 'Yokai del agua: rebota al aterrizar y aplasta', secret: true,
     stats: { corte: 24, postura: 26, agilidad: 8, engano: 10, reflejos: 12, espiritu: 20 },
-    scale: 1.30, windupMul: 1.55, dmgMul: 1.18, breakMul: 2.3, bounce: true, head: 'sapo',
+    scale: 1.30, windupMul: 1.55, dmgMul: 1.18, breakMul: 2.3, bounce: true, kamaeFav: 2, head: 'sapo',
     pal: pal('#5a8a3a', '#44682a', '#3a5226', '#28381a', '#d0e060', '#88b050', '#2e4a1e') },
 
   { id: 'mapache', name: 'TANUKI', kanji: '狸', desc: 'Yokai cambiaformas: roba postura con cada golpe', secret: true,

@@ -15,6 +15,14 @@ function updatePlayer(p, foe, isP1, dt) {
   const guardHold = inp.guard || (inp.feint && holdT >= 0.16);
   p.feintHoldT = inp.feint ? holdT + dt : 0;
 
+  // kamae: manteniendo finta, salto (↑) sube la línea y abajo (↓) la baja;
+  // la CPU la fija directo con inp.kamae (ai.js)
+  if (inp.kamae != null) setKamae(p, inp.kamae);
+  else if (inp.feint && (p.state === PSTATE.IDLE || p.state === PSTATE.GUARD) && roundStartTimer <= 0) {
+    if (inp.jump && !p.jumpHeld) setKamae(p, p.kamae - 1);
+    if (inp.down && !p.downHeld) setKamae(p, p.kamae + 1);
+  }
+
   // temporizador de estado
   if (p.stateTimer > 0 && p.state !== PSTATE.GUARD) {
     p.stateTimer -= dt;
@@ -26,9 +34,11 @@ function updatePlayer(p, foe, isP1, dt) {
           p.hitDone = false;
           sfxSlash();
           const cy = bodyCenterY(p);
+          // el arco del corte sigue su línea: alto cae, medio cruza, bajo barre
+          const arco = [[-54, 10], [-30, -8], [16, 32]][p.atkKamae != null ? p.atkKamae : 1];
           slashTrails.push({
-            x1: p.x + p.facing * 14, y1: cy - 42,
-            x2: p.x + p.facing * (p.reach + 14), y2: cy + 16,
+            x1: p.x + p.facing * 14, y1: cy + arco[0],
+            x2: p.x + p.facing * (p.reach + 14), y2: cy + arco[1],
             life: 0.22, maxLife: 0.22,
           });
           p.vx = p.facing * 200;
@@ -79,8 +89,8 @@ function updatePlayer(p, foe, isP1, dt) {
     }
     if (mv !== 0) p.facing = mv;
     if (mv === 0) p.facing = foe.x > p.x ? 1 : -1;
-    if (inp.jump && !p.jumpHeld) doJump(p);
-    // ataque normal = corte (arriba→abajo); abajo + ataque = estocada
+    if (inp.jump && !p.jumpHeld && !inp.feint) doJump(p);   // finta+↑ es kamae, no salto
+    // ataque normal = corte en tu kamae; abajo + ataque = estocada
     if (inp.attack && !p.attackHeld) { p.attackThrust = !!inp.down; startAttack(p); }
     else if (guardHold) startGuard(p);
     else if (feintTap) startFeint(p);
@@ -98,6 +108,7 @@ function updatePlayer(p, foe, isP1, dt) {
   p.attackHeld = inp.attack;
   p.feintHeld = inp.feint;
   p.jumpHeld = inp.jump;
+  p.downHeld = inp.down;
 
   // viento (destino o tejado) y vaivén de la cubierta (barco)
   if (destino.id === 'viento' || stage.id === 'tejado' || stage.id === 'barco') {
@@ -111,7 +122,9 @@ function updatePlayer(p, foe, isP1, dt) {
   p.y += p.vy * dt;
   // balneario: la baranda es plataforma — se aterriza cayendo sobre
   // ella (si el salto alcanza) y se baja a la arena apretando abajo
-  if (stage.id === 'playa' && p.state !== PSTATE.DEAD && p.vy >= 0 && !inp.down &&
+  // (abajo + finta es cambio de kamae, no bajada)
+  const bajar = inp.down && !inp.feint;
+  if (stage.id === 'playa' && p.state !== PSTATE.DEAD && p.vy >= 0 && !bajar &&
       p.x > BARANDA_X0 && p.x < BARANDA_X1 &&
       prevY <= BARANDA_Y + 0.5 && p.y >= BARANDA_Y) {
     p.y = BARANDA_Y;
@@ -139,7 +152,7 @@ function updatePlayer(p, foe, isP1, dt) {
       const dentro = p.x > z.x0 * W && p.x < z.x1 * W;
       if (z.tipo === 'plataforma') {
         const zy = z.y * H;
-        if (p.vy >= 0 && !inp.down && dentro && prevY <= zy + 0.5 && p.y >= zy) {
+        if (p.vy >= 0 && !bajar && dentro && prevY <= zy + 0.5 && p.y >= zy) {
           p.y = zy; p.vy = 0; p.onGround = true; p.jumpsUsed = 0;
         }
       } else if (z.tipo === 'vacio' && dentro && p.onGround) {

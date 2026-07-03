@@ -152,6 +152,7 @@ function resetRound() {
   for (const [p, x, f] of [[p1, W * 0.25, 1], [p2, W * 0.75, -1]]) {
     p.x = x; p.y = GROUND; p.vx = 0; p.vy = 0; p.facing = f;
     p.state = PSTATE.IDLE; p.stateTimer = 0;
+    p.kamae = 1; p.atkKamae = 1;      // cada ronda arranca en chūdan
     p.vida = VIDA_MAX;
     p.bet = APUESTAS[betSel[p === p1 ? 0 : 1]].id;
     deriveAttrs(p);

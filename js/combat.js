@@ -7,10 +7,34 @@
 function canAct(p) { return p.state === PSTATE.IDLE && roundStartTimer <= 0; }
 function isVulnerable(p) { return p.state !== PSTATE.DEAD; }
 
+// cambia la línea de kenjutsu (0 jōdan · 1 chūdan · 2 gedan); se lee en el
+// rig (render.js), sin HUD. El destello es visual puro (Math.random ok).
+function setKamae(p, k) {
+  k = Math.max(0, Math.min(2, k));
+  if (k === p.kamae) return;
+  p.kamae = k;
+  sfxFeint();
+  if (typeof particles !== 'undefined') {
+    const ky = [-70, -46, -22][k] * p.scale;
+    for (let i = 0; i < 4; i++) {
+      particles.push({
+        x: p.x + p.facing * (14 + Math.random() * 18), y: p.y + ky + (Math.random() - 0.5) * 10,
+        vx: p.facing * 40, vy: (Math.random() - 0.5) * 50,
+        life: 0.22, maxLife: 0.22, color: 'rgba(220,225,235,0.8)', size: 2, gravity: false,
+      });
+    }
+  }
+}
+
 function startAttack(p) {
   if (!canAct(p)) return;
+  // el corte nace de la kamae del momento y queda fijado para todo el golpe
+  p.atkKamae = p.kamae;
+  const K = KAMAE[p.atkKamae];
+  const fav = p.kamaeFav === p.atkKamae;
   p.state = PSTATE.WINDUP;
-  p.stateTimer = p.windup;
+  p.stateTimer = p.windup * K.windupMul * (fav ? 0.88 : 1);
+  p.atkDmg = p.dmg * K.dmgMul * (fav ? 1.12 : 1);
 }
 
 function startFeint(p) {
@@ -92,9 +116,12 @@ function applyDamage(def, att, dmgRaw) {
   def.vida -= dmg;
   def.postura = Math.max(0, def.postura - dmg * 0.35);
   def.state = PSTATE.HITSTUN;
-  def.stateTimer = 0.32;
-  def.vx = att.facing * 330;
-  def.vy = -140;
+  // gedan barre las piernas: derriba (más aturdimiento y vuelo alto)
+  const barrida = KAMAE[att.atkKamae != null ? att.atkKamae : 1].sweep;
+  def.stateTimer = barrida ? 0.5 : 0.32;
+  def.vx = att.facing * (barrida ? 260 : 330);
+  def.vy = barrida ? -320 : -140;
+  if (barrida) def.onGround = false;
   att.stats.hits++;
   def.stats.taken += dmg;
   if (att.char.steal) {
@@ -169,11 +196,16 @@ function tryHit(att, def) {
   if (dist > att.reach + 16 || heightDiff > 58 * Math.max(att.scale, def.scale)) return;
   att.hitDone = true;
 
-  // ¿el defensor bloquea de frente?
+  // línea del corte y su regla (matriz KAMAE en data.js)
+  const K = KAMAE[att.atkKamae != null ? att.atkKamae : 1];
+  const dmgCorte = att.atkDmg || att.dmg;
   const defFacing = (att.x - def.x) * def.facing > 0;
+
+  // ¿el defensor bloquea de frente?
   if (def.state === PSTATE.GUARD && defFacing) {
-    if (def.guardT <= def.parryWin) {
-      // ¡PARRY! el atacante queda tambaleando
+    const enLinea = def.kamae === att.atkKamae;   // la guardia solo cubre SU línea
+    if (enLinea && def.guardT <= def.parryWin) {
+      // ¡PARRY! (solo en la línea correcta) el atacante queda tambaleando
       att.state = PSTATE.STAGGER;
       att.stateTimer = 0.85 * att.staggerMul;
       att.vx = -att.facing * 300;
@@ -185,25 +217,57 @@ function tryHit(att, def) {
       shake = 8;
       spawnClash((att.x + def.x) / 2, bodyCenterY(def) - 8);
       floatText(def.x, bodyCenterY(def) - 52, '¡PARRY!', '#80e8ff', 22);
-    } else {
-      // bloqueo normal: sin daño, pierde postura
-      const breakMul = att.char.breakMul || 1;
-      def.postura -= att.dmg * 0.65 * breakMul;
+      return;
+    }
+    if (K.vsGuardia === 'pierde') {
+      // gedan contra guardia: cualquier línea lo para y el atacante queda vendido
+      att.state = PSTATE.STAGGER;
+      att.stateTimer = 0.55 * att.staggerMul;
+      att.vx = -att.facing * 260;
       def.stats.blocks++;
-      def.vx = att.facing * 200;
       sfxBlock();
       shake = 5;
-      spawnSparks((att.x + def.x) / 2, bodyCenterY(def) - 8);
-      if (att.char.steal) {
-        const robo = Math.min(Math.max(0, def.postura), 8);
-        def.postura -= robo;
-        att.postura = Math.min(att.posMax, att.postura + robo);
-      }
-      checkPostureBreak(def);
+      spawnSparks((att.x + def.x) / 2, def.y - 16 * def.scale);
+      floatText(def.x, bodyCenterY(def) - 46, '¡BARRIDO PARADO!', '#9ad0e8', 15);
+      return;
     }
+    if (!enLinea) {
+      // la guardia estaba en otra línea: el corte entra por el hueco
+      applyDamage(def, att, dmgCorte);
+      return;
+    }
+    // bloqueo en línea: sin daño, pierde postura — jōdan la muele (rompe guardia)
+    const breakMul = (att.char.breakMul || 1) * (K.breakMul || 1);
+    def.postura -= dmgCorte * 0.65 * breakMul;
+    def.stats.blocks++;
+    def.vx = att.facing * 200;
+    sfxBlock();
+    shake = 5;
+    spawnSparks((att.x + def.x) / 2, bodyCenterY(def) - 8);
+    if (att.char.steal) {
+      const robo = Math.min(Math.max(0, def.postura), 8);
+      def.postura -= robo;
+      att.postura = Math.min(att.posMax, att.postura + robo);
+    }
+    checkPostureBreak(def);
     return;
   }
-  applyDamage(def, att, att.dmg);
+
+  // sin guardia: la kamae que contrarresta esta línea (triángulo de data.js)
+  // desvía el corte de pie y deja al atacante vendido
+  if (def.state === PSTATE.IDLE && defFacing && def.kamae === K.neutraliza && roundStartTimer <= 0) {
+    att.state = PSTATE.STAGGER;
+    att.stateTimer = 0.5 * att.staggerMul;
+    att.vx = -att.facing * 240;
+    def.postura = Math.max(0, def.postura - 4);
+    sfxClash();
+    shake = 6;
+    timeScale = 0.5; slowmoTimer = 0.12;
+    spawnClash((att.x + def.x) / 2, bodyCenterY(def) + (K.sweep ? 24 : -8));
+    floatText(def.x, bodyCenterY(def) - 48, '¡NEUTRALIZADO!', '#b0e8a0', 17);
+    return;
+  }
+  applyDamage(def, att, dmgCorte);
 }
 
 function updateCombat() {

@@ -20,6 +20,10 @@ const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 8081;
 const ROOT = path.join(__dirname, '..');
+// Versión de la simulación/protocolo del duelo — DEBE coincidir con GAME_VER
+// (js/core.js). Un cliente de otra versión (página cacheada) calcularía OTRA
+// pelea en el lockstep, así que no se empareja: recibe {t:'ver'} y se cierra.
+const PROTO_VER = 2;
 // herramientas de edición (listar/guardar/generar) solo en local, nunca en el
 // contenedor de producción
 const DEV = process.env.NODE_ENV !== 'production';
@@ -529,7 +533,7 @@ const MAX_WATCHERS = 20;             // mirones por duelo
 const MAX_SPEC_TICKS = 72000;        // ~20 min; más allá el duelo deja de aceptar mirones
 
 function watchSnapshot(d) {
-  return JSON.stringify({ t: 'watch', seed: d.seed, names: d.names, chars: d.chars, i: d.i });
+  return JSON.stringify({ t: 'watch', v: PROTO_VER, seed: d.seed, names: d.names, chars: d.chars, i: d.i });
 }
 
 function toWatchers(d, msg) {
@@ -590,8 +594,8 @@ function pair(a, b, modo) {
   a.rematch = b.rematch = false;
   a.match = b.match = { reports: [null, null], names: [a.name, b.name], recorded: false };
   const seed = Math.floor(Math.random() * 0xffffffff);
-  a.send(JSON.stringify({ t: 'match', side: 0, seed, foe: b.name }));
-  b.send(JSON.stringify({ t: 'match', side: 1, seed, foe: a.name }));
+  a.send(JSON.stringify({ t: 'match', v: PROTO_VER, side: 0, seed, foe: b.name }));
+  b.send(JSON.stringify({ t: 'match', v: PROTO_VER, side: 1, seed, foe: a.name }));
   if (modo !== 'beat') registerDuel(a, b, seed);   // el duelo 1v1 se puede mirar
   const etq = modo === 'beat' ? 'co-op beat' : 'duelo';
   console.log(new Date().toISOString(), `${etq} emparejado: ${a.name} vs ${b.name} (semilla ${seed})`);
@@ -613,8 +617,8 @@ function askRematch(ws) {
   const b = a === ws ? peer : ws;
   a.match = b.match = { reports: [null, null], names: [a.name, b.name], recorded: false };
   const seed = Math.floor(Math.random() * 0xffffffff);
-  a.send(JSON.stringify({ t: 'match', side: 0, seed, foe: b.name }));
-  b.send(JSON.stringify({ t: 'match', side: 1, seed, foe: a.name }));
+  a.send(JSON.stringify({ t: 'match', v: PROTO_VER, side: 0, seed, foe: b.name }));
+  b.send(JSON.stringify({ t: 'match', v: PROTO_VER, side: 1, seed, foe: a.name }));
   if (!a.beat) registerDuel(a, b, seed);   // los mirones siguen viendo la revancha
   console.log(new Date().toISOString(), `revancha: ${a.name} vs ${b.name} (semilla ${seed})`);
 }
@@ -633,6 +637,13 @@ wss.on('connection', ws => {
       try { m = JSON.parse(raw); } catch (e) { return; }
       if (m.t === 'watch') { specJoin(ws); return; }   // mirón: ver un duelo en curso
       if (m.t === 'join') {
+        // versión del duelo: cliente viejo → aviso y fuera (el co-op del beat
+        // es autoritativo por host y tolera versiones; no se le exige)
+        if (m.mode !== 'beat' && (m.v | 0) !== PROTO_VER) {
+          ws.send('{"t":"ver"}');
+          ws.close();
+          return;
+        }
         ws.name = String(m.name || '').replace(/[^\p{L}\p{N} _.-]/gu, '')
           .trim().slice(0, 12).toUpperCase() || 'ANÓNIMO';
         // dos colas separadas: el duelo 1v1 no se empareja con el co-op del beat

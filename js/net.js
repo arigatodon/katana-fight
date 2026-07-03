@@ -122,7 +122,9 @@ function netConnect(name, code) {
   net.ws = ws;
   ws.onopen = () => {
     net.fase = 'buscando';
-    const j = { t: 'join', name: net.myName };
+    // v: versión de la simulación — el servidor no empareja versiones
+    // distintas (un bit de diferencia no da error, da OTRA pelea)
+    const j = { t: 'join', name: net.myName, v: GAME_VER };
     if (net.code) j.code = net.code;
     netSend(j);
   };
@@ -144,7 +146,15 @@ function netSend(m) { if (net && net.ws && net.ws.readyState === 1) net.ws.send(
 
 function netMsg(m) {
   if (!net) return;
+  if (m.t === 'ver') {                // el servidor habla otra versión del juego
+    netFail('tu página es de otra era — recárgala (Ctrl+R) para actualizar');
+    return;
+  }
   if (m.t === 'match') {              // rival encontrado (o revancha): a elegir guerrero
+    if (m.v != null && (m.v | 0) !== GAME_VER) {
+      netFail('tu página es de otra era — recárgala (Ctrl+R) para actualizar');
+      return;
+    }
     net.side = m.side;
     net.seed = m.seed >>> 0;
     net.foeName = String(m.foe || '???').slice(0, 12).toUpperCase() || '???';

@@ -774,6 +774,9 @@ function drawControles(t) {
       sel ? '#b03030' : 'transparent');
   }
 
+  // el kenjutsu: la finta sostenida también gobierna la postura (kamae)
+  drawCenterText('KENJUTSU · mantén FINTA + saltar/bajar cambia de postura: alta rompe guardias · baja barre piernas · media equilibra',
+    12, H - 44, '#8a9aa8', 'transparent');
   ctx.textAlign = 'left';
   drawCenterText(
     ctlWaiting ? 'pulsa la tecla nueva · ESC cancela'

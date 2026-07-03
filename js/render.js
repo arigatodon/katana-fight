@@ -154,13 +154,23 @@ function drawOrigami(p, ghostAlpha, rec) {
   // de arriba→abajo igual a la izquierda que a la derecha (sin multiplicar f).
   // Ataque normal = corte vertical · abajo+ataque = estocada (p.attackThrust).
   const thrust = p.attackThrust;
-  let lean = 0, dx = 0, armRot = 0;
+  // la kamae inclina el brazo armado: jōdan alza la hoja, gedan la baja —
+  // así la línea del rival se lee en la silueta, sin HUD
+  const km = (p.state === PSTATE.WINDUP || p.state === PSTATE.ATTACK || p.state === PSTATE.RECOVER)
+    ? (p.atkKamae != null ? p.atkKamae : 1)
+    : (p.kamae != null ? p.kamae : 1);
+  // armRot por línea: alta = hoja en alto, media = a media altura, baja = rasante.
+  // Se separan bien las tres para que la kamae se lea de un vistazo (sin HUD).
+  let lean = 0, dx = 0, armRot = km === 0 ? -1.00 : km === 2 ? 0.55 : -0.30;
   switch (p.state) {
-    case PSTATE.WINDUP:  lean = thrust ? -0.06 : -0.12; dx = thrust ? -4 : 0; armRot = thrust ? -0.15 : -1.05; break;
+    case PSTATE.WINDUP:  lean = thrust ? -0.06 : (km === 2 ? -0.16 : -0.12); dx = thrust ? -4 : 0;
+                         armRot = thrust ? -0.15 : (km === 0 ? -1.55 : km === 2 ? -0.25 : -0.85); break;
     case PSTATE.FEINT:   lean = -0.08; armRot = -0.70; break;
-    case PSTATE.ATTACK:  lean = thrust ? 0.10 : 0.20; dx = thrust ? 24 : 14; armRot = thrust ? 0.02 : 0.55; break;
-    case PSTATE.RECOVER: lean = thrust ? 0.06 : 0.10; dx = thrust ? 10 : 6; armRot = thrust ? 0.00 : 0.30; break;
-    case PSTATE.GUARD:   lean = -0.10; armRot = -0.55; break;
+    case PSTATE.ATTACK:  lean = thrust ? 0.10 : 0.20; dx = thrust ? 24 : 14;
+                         armRot = thrust ? 0.02 : (km === 0 ? 0.70 : km === 2 ? 0.00 : 0.35); break;
+    case PSTATE.RECOVER: lean = thrust ? 0.06 : 0.10; dx = thrust ? 10 : 6;
+                         armRot = thrust ? 0.00 : (km === 0 ? 0.55 : km === 2 ? 0.10 : 0.30); break;
+    case PSTATE.GUARD:   lean = -0.10; armRot = km === 0 ? -1.05 : km === 2 ? 0.15 : -0.45; break;
     case PSTATE.STAGGER:
     case PSTATE.HITSTUN: lean = -0.24; dx = -6; armRot = -0.20; break;
     case PSTATE.EXPOSED: lean = 0.14 + Math.sin(p.bob * 6) * 0.04; armRot = 0.10; break;
@@ -217,8 +227,10 @@ function drawPuppet(p, ghostAlpha, art) {
   const h = PUPPET_H * sc;
   const w = h * (img.width / img.height);
 
-  // inclinación / arremetida según el estado (legibilidad de la pose)
-  let lean = 0, dx = 0, dy = 0;
+  // inclinación / arremetida según el estado (legibilidad de la pose);
+  // figura de una pieza: la kamae solo puede leerse en la inclinación
+  const km2 = p.kamae != null ? p.kamae : 1;
+  let lean = km2 === 0 ? -0.06 : km2 === 2 ? 0.08 : 0, dx = 0, dy = km2 === 2 ? 2 : 0;
   switch (p.state) {
     case PSTATE.WINDUP:  lean = -0.20; dy = -3; break;
     case PSTATE.FEINT:   lean = -0.12; break;
@@ -888,16 +900,31 @@ function drawSamurai(p, ghostAlpha) {
   ctx.scale(f * sc, sc);
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
 
-  // pose según estado
-  let grip = { x: 16, y: -46 + Math.sin(p.bob * 1.7) * 1.2 };
-  let ang = -0.62;
+  // pose según estado — la kamae se LEE en la hoja: jōdan la alza sobre la
+  // cabeza, chūdan la cruza al pecho, gedan la deja rasante (sin HUD)
+  const km = (p.state === PSTATE.WINDUP || p.state === PSTATE.ATTACK || p.state === PSTATE.RECOVER)
+    ? (p.atkKamae != null ? p.atkKamae : 1)
+    : (p.kamae != null ? p.kamae : 1);
+  const wob = Math.sin(p.bob * 1.7) * 1.2;
+  let grip = km === 0 ? { x: 5, y: -62 + wob }
+           : km === 2 ? { x: 15, y: -31 + wob }
+           : { x: 16, y: -46 + wob };
+  let ang = km === 0 ? -1.72 : km === 2 ? 0.46 : -0.62;
   let footF = 12, footB = -11, lean = 0, headY = -66;
   switch (p.state) {
     case PSTATE.WINDUP: {
       const k = 1 - Math.max(0, p.stateTimer / (p.windup || 0.2));
-      grip = { x: 3 - k * 5, y: -60 - k * 9 };
-      ang = -1.85 - k * 0.55;
-      lean = -3; footF = 10; footB = -14;
+      if (km === 0) {            // jōdan: la hoja se alza aún más, corte que cae
+        grip = { x: 3 - k * 5, y: -60 - k * 9 };
+        ang = -1.85 - k * 0.55;
+      } else if (km === 2) {     // gedan: agachado, hoja atrás y abajo
+        grip = { x: -2 - k * 4, y: -26 - k * 3 };
+        ang = 2.62 + k * 0.3;
+      } else {                   // chūdan: hoja recogida al costado
+        grip = { x: -1 - k * 4, y: -46 - k * 4 };
+        ang = -2.5 - k * 0.35;
+      }
+      lean = km === 2 ? -5 : -3; footF = 10; footB = -14;
       break;
     }
     case PSTATE.FEINT: {
@@ -908,15 +935,20 @@ function drawSamurai(p, ghostAlpha) {
       break;
     }
     case PSTATE.ATTACK:
-      grip = { x: 26, y: -46 }; ang = 0.12;
+      // el corte termina donde manda su línea: alto cae, medio cruza, bajo barre
+      grip = km === 0 ? { x: 26, y: -46 } : km === 2 ? { x: 24, y: -22 } : { x: 27, y: -40 };
+      ang = km === 0 ? 0.12 : km === 2 ? 0.34 : -0.04;
       lean = 7; footF = 25; footB = -19; headY = -63;
       break;
     case PSTATE.RECOVER:
-      grip = { x: 20, y: -36 }; ang = 0.72;
+      grip = km === 2 ? { x: 18, y: -22 } : { x: 20, y: -36 };
+      ang = km === 2 ? 0.9 : 0.72;
       lean = 4; footF = 18; footB = -14;
       break;
     case PSTATE.GUARD:
-      grip = { x: 12, y: -50 }; ang = -1.15;
+      // la guardia cubre SOLO la línea de tu kamae: se lee en la altura de la hoja
+      grip = km === 0 ? { x: 8, y: -58 } : km === 2 ? { x: 13, y: -34 } : { x: 12, y: -50 };
+      ang = km === 0 ? -1.38 : km === 2 ? -0.68 : -1.15;
       lean = -4; footF = 9; footB = -15; headY = -64;
       break;
     case PSTATE.STAGGER:
@@ -1178,6 +1210,14 @@ function drawDestinoOverlay() {
 }
 
 // ---------------- Escena de combate completa ----------------
+// recordatorio de cómo cambiar de kamae (postura de kenjutsu), con las teclas
+// reales del J1 (remapeables). En táctil aún no hay gesto dedicado (Fase 5.2).
+function kamaeHint() {
+  if (TOUCH) return '3 posturas: alta rompe guardias · baja barre · media equilibra';
+  const m = save.keymap.p1;
+  return `mantén ${keyLabel(m.feint)} + ${keyLabel(m.jump)}/${keyLabel(m.down)} para cambiar de postura (alta·media·baja)`;
+}
+
 function drawFight(t) {
   drawBackground();
   drawCapas('cielo');        // capa de adorno detrás de los luchadores (escena.js)
@@ -1237,6 +1277,10 @@ function drawFight(t) {
     if (roundStartTimer > 0.7) {
       drawCenterText(`RONDA ${roundNum}`, 40, H * 0.4);
       drawCenterText(stage.name + ' · ' + destino.name, 16, H * 0.48, '#c0b8a8', 'transparent');
+      // recordatorio de kamae en la 1ª ronda (no en replay/mirón: no controlan)
+      if (roundNum === 1 && !replayActive() && !(typeof specActive === 'function' && specActive())) {
+        drawCenterText(kamaeHint(), 13, H * 0.57, '#9ad0e8', 'transparent');
+      }
     } else {
       drawCenterText('¡CORTEN!', 56, H * 0.44, '#e8c050');
     }

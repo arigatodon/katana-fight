@@ -17,6 +17,7 @@ function makePlayer(x, facing, char, isCPU, name, virtud, statBoost) {
     char, pal: char.pal, name,
     state: PSTATE.IDLE, stateTimer: 0,
     vida: VIDA_MAX, postura: 0,
+    kamae: 1, atkKamae: 1,          // línea de kenjutsu actual y la del corte en curso
     wins: 0, isCPU,
     onGround: true, jumpsUsed: 0,
     deathT: 0, guardT: 0,
@@ -29,7 +30,7 @@ function makePlayer(x, facing, char, isCPU, name, virtud, statBoost) {
     // IA
     aiTimer: 0, aiAction: 'approach', aiReact: 0,
     bob: Math.random() * 10,
-    attackHeld: false, feintHeld: false, jumpHeld: false,
+    attackHeld: false, feintHeld: false, jumpHeld: false, downHeld: false,
     afterimages: [],
   };
   deriveAttrs(p);
@@ -61,6 +62,8 @@ function deriveAttrs(p) {
   p.staggerMul = Math.max(0.6, 1 - s.espiritu * 0.008);
   p.reach    = 86 * (p.char.reachMul || 1) * Math.max(1, p.char.scale || 1);
   p.scale    = p.char.scale || 1;
+  // afinidad de kamae: desde su línea favorita el corte sale más afilado
+  p.kamaeFav = 'kamaeFav' in p.char ? p.char.kamaeFav : null;
 }
 
 function bodyCenterY(p) { return p.y - 46 * p.scale; }
