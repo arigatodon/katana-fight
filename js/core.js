@@ -121,9 +121,9 @@ function rnd() {
 }
 
 // ---------------- Estado global ----------------
-// Escenas: title | controles | nombre | online | choose | virtud |
-//          vs | destino | apuesta | fight | roundEnd | matchEnd |
-//          apoyo | comentario | firma | ranking
+// Escenas: title | opciones | controles | nombre | sala | online | mirar |
+//          choose | virtud | vs | destino | apuesta | fight | roundEnd |
+//          matchEnd | apoyo | comentario | firma | ranking
 let scene = 'title';
 let menuSel = 0;
 let vsCPU = true;

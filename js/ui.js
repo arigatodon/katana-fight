@@ -342,6 +342,8 @@ function handleMenus() {
       if (code === 'KeyW' || code === 'ArrowUp')   { menuSel = (menuSel + TITLE_OPTS.length - 1) % TITLE_OPTS.length; sfxSelect(); }
       if (code === 'KeyS' || code === 'ArrowDown') { menuSel = (menuSel + 1) % TITLE_OPTS.length; sfxSelect(); }
       if (code === 'Enter' || code === 'Space') titleChoose(menuSel);
+      // tecla V: mirar en vivo el duelo en curso (si la presencia anuncia uno)
+      if (code === 'KeyV' && netPresence && netPresence.duelos > 0) { sfxConfirm(); specConnect(); }
       // tecla B: entra al spin-off beat 'em up (solo si ya desbloqueaste un yokai)
       if (code === 'KeyB' && save.unlocked.length > 0) { sfxConfirm(); location.href = 'beat.html'; }
       checkCheat(code);   // escribir "SECRETO" desbloquea todos los personajes
@@ -396,6 +398,8 @@ function handleMenus() {
       if (code === 'Escape') enterNombre();
     } else if (scene === 'online') {
       if (code === 'Enter' || code === 'Space' || code === 'Escape') { sfxConfirm(); netLeave2Title(); }
+    } else if (scene === 'mirar') {
+      if (code === 'Enter' || code === 'Space' || code === 'Escape') { sfxConfirm(); specLeave(); scene = 'title'; }
     } else if (scene === 'matchEnd') {
       if (netActive() || netResult) {
         // online: ENTER pide revancha (si el rival sigue ahí), ESC sale
@@ -455,6 +459,13 @@ function handleMenus() {
       // link del beat 'em up (revelado al desbloquear un yokai)
       if (save.unlocked.length > 0 && Math.abs(tp.y - H * 0.90) < 18 && Math.abs(tp.x - W / 2) < 240) {
         sfxConfirm(); location.href = 'beat.html'; continue;
+      }
+      // "mirar el duelo en curso" (a la derecha del menú, bajo la presencia)
+      if (netPresence && netPresence.duelos > 0) {
+        const onlineI = TITLE_OPTS.findIndex(o => o.id === 'online');
+        if (tp.x > W * 0.68 && Math.abs(tp.y - (H * 0.50 + onlineI * 40 + 20)) < 12) {
+          sfxConfirm(); specConnect(); continue;
+        }
       }
       for (let i = 0; i < TITLE_OPTS.length; i++) {
         if (Math.abs(tp.y - (H * 0.50 + i * 40)) < 18) {
@@ -518,6 +529,8 @@ function handleMenus() {
       else if (tp.y > H * 0.82) enterNombre();
     } else if (scene === 'online') {
       sfxConfirm(); netLeave2Title();
+    } else if (scene === 'mirar') {
+      sfxConfirm(); specLeave(); scene = 'title';
     } else if (scene === 'matchEnd') {
       if (netActive() || netResult) {
         if (netReplayId && tp.y > H * 0.91) {   // abrir el replay del duelo
@@ -662,13 +675,23 @@ function drawTitle(t) {
       txt = '⚔ ' + netPresence.jugando + (netPresence.jugando === 1 ? ' duelo en curso' : ' duelos en curso');
       col = '#9a8a6a';
     }
+    const onlineI = TITLE_OPTS.findIndex(o => o.id === 'online');
     if (txt) {
-      const onlineI = TITLE_OPTS.findIndex(o => o.id === 'online');
       ctx.save();
       ctx.textAlign = 'left';
       ctx.font = 'bold 13px "Courier New", monospace';
       ctx.fillStyle = col;
       ctx.fillText(txt, W * 0.71, H * 0.50 + onlineI * 40);
+      ctx.restore();
+    }
+    // hay un duelo mirable: invitación a verlo en directo (tecla V o toque)
+    if (netPresence.duelos > 0) {
+      ctx.save();
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 13px "Courier New", monospace';
+      ctx.fillStyle = Math.sin(t * 3) > -0.5 ? '#9ad0e8' : '#5a7a8a';
+      ctx.fillText(TOUCH ? '👁 toca aquí: VER EL DUELO' : '👁 V: ver el duelo en vivo',
+                   W * 0.71, H * 0.50 + onlineI * 40 + 20);
       ctx.restore();
     }
   }

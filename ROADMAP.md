@@ -4,8 +4,9 @@
 > beat 'em up KATANA RŌNIN con co-op, ranking global, clima real, táctil básico, desplegado en
 > katana.igorv.org e itch.io. Donaciones por enlace (Buda / Mercado Pago).
 >
-> Pendiente inmediato antes de empezar: commitear la colisión de cuerpos (`resolveBodyCollision`
-> en `js/update.js`, ya escrita) tras verificar que `smoke.html` sigue determinista.
+> **FASE 1 COMPLETA** (jul 2026): colisión de cuerpos, revancha, salas privadas, replays
+> compartibles y espectadores en vivo — todo verificado con `smoke.html` + `e2e_online.py`.
+> Lo siguiente: FASE 2 (kamae + iaijutsu), el corazón del juego.
 
 ## La tesis del ×10
 
@@ -28,7 +29,7 @@ gratis que casi ningún juego indie web tiene.
 
 ## FASE 1 — Jugar con amigos sin fricción (el multiplicador más grande)
 
-### 1.1 Salas privadas con código de invitación — esfuerzo M
+### 1.1 Salas privadas con código de invitación — esfuerzo M — ✅ HECHO
 
 Crear duelo privado genera un código de 4 letras (p. ej. `KIRI`); el amigo lo escribe (o abre
 `?sala=KIRI`) y se emparejan directo, saltándose la cola pública. Aplica a duelo **y** co-op RŌNIN.
@@ -37,14 +38,14 @@ Crear duelo privado genera un código de 4 letras (p. ej. `KIRI`); el amigo lo e
   cola FIFO como hoy. Códigos con TTL (~10 min) y limpieza al desconectar.
 - El código sale de `Math.random` del servidor (no toca el RNG con semilla del cliente).
 - **Criterios de aceptación:**
-  - [ ] Dos navegadores con el mismo código se emparejan aunque haya terceros esperando en la cola pública.
-  - [ ] Un tercero con otro código (o sin código) NUNCA cae en la sala privada.
-  - [ ] `?sala=XXXX` en la URL lleva directo a la espera de esa sala (compartible por WhatsApp).
-  - [ ] Código caducado o inexistente → mensaje claro y vuelta al menú online, sin colgar el socket.
-  - [ ] `e2e_online.py` extendido con un caso de sala privada (3 clientes: 2 con código + 1 intruso) pasa.
-  - [ ] La presencia del título (`/estado`) sigue contando bien a los que esperan en privado.
+  - [x] Dos navegadores con el mismo código se emparejan aunque haya terceros esperando en la cola pública.
+  - [x] Un tercero con otro código (o sin código) NUNCA cae en la sala privada.
+  - [x] `?sala=XXXX` en la URL lleva directo a la espera de esa sala (compartible por WhatsApp).
+  - [x] Código caducado o inexistente → mensaje claro y vuelta al menú online, sin colgar el socket.
+  - [x] `e2e_online.py` extendido con un caso de sala privada (3 clientes: 2 con código + 1 intruso) pasa.
+  - [x] La presencia del título (`/estado`) sigue contando bien a los que esperan en privado.
 
-### 1.2 Revancha — esfuerzo S
+### 1.2 Revancha — esfuerzo S — ✅ HECHO
 
 Al terminar el duelo, ambos ven "REVANCHA (Enter) / SALIR (Esc)". Si los dos aceptan en ~15 s,
 el servidor reusa el par con **semilla nueva** y se vuelve a elegir guerrero.
@@ -52,13 +53,13 @@ el servidor reusa el par con **semilla nueva** y se vuelve a elegir guerrero.
 - Mensajes nuevos: `rematch` (cliente→servidor) y `match` reemitido con `seed` fresca. Si uno
   se va o expira el plazo, el otro vuelve a la cola/menú.
 - **Criterios de aceptación:**
-  - [ ] Revancha completa sin recargar la página ni reconectar el WebSocket.
-  - [ ] La semilla de la revancha es distinta (destinos/apuestas no se repiten sistemáticamente).
-  - [ ] El ranking anota cada duelo por separado con el anti-trampa de doble reporte intacto.
-  - [ ] Si el rival cierra la pestaña durante la oferta, aparece "TU RIVAL SE FUE" y no un cuelgue.
-  - [ ] `e2e_online.py` juega dos duelos seguidos vía revancha y las simulaciones coinciden tic a tic en ambos.
+  - [x] Revancha completa sin recargar la página ni reconectar el WebSocket.
+  - [x] La semilla de la revancha es distinta (destinos/apuestas no se repiten sistemáticamente).
+  - [x] El ranking anota cada duelo por separado con el anti-trampa de doble reporte intacto.
+  - [x] Si el rival cierra la pestaña durante la oferta, aparece "TU RIVAL SE FUE" y no un cuelgue.
+  - [x] `e2e_online.py` juega dos duelos seguidos vía revancha y las simulaciones coinciden tic a tic en ambos.
 
-### 1.3 Replays compartibles por URL — esfuerzo M
+### 1.3 Replays compartibles por URL — esfuerzo M — ✅ HECHO
 
 Al acabar un duelo online, el cliente puede publicar el replay: `POST /replay` con
 `{seed, chars, nombres, inputs de ambos lados, versión}` (pocos KB). El servidor devuelve un id y
@@ -70,22 +71,22 @@ la URL `?replay=<id>` reproduce la pelea completa re-simulándola.
 - Controles mínimos de reproducción: pausa y velocidad ×1/×2 (avanzar tics de más por frame; nada
   de tocar la simulación).
 - **Criterios de aceptación:**
-  - [ ] Re-simular un replay produce exactamente el mismo ganador y el mismo hash de simulación que registró el duelo original.
-  - [ ] La URL de replay funciona en un navegador limpio sin estado previo (incógnito).
-  - [ ] Replay de versión incompatible → mensaje "REPLAY DE OTRA ERA", nunca una pelea distinta.
-  - [ ] Un replay pesa < 50 KB; el servidor rechaza payloads mayores y limita publicaciones por IP.
-  - [ ] Los 3 mejores duelos recientes se listan en la pantalla de ranking como "DUELOS MEMORABLES".
+  - [x] Re-simular un replay produce exactamente el mismo ganador y el mismo hash de simulación que registró el duelo original.
+  - [x] La URL de replay funciona en un navegador limpio sin estado previo (incógnito).
+  - [x] Replay de versión incompatible → mensaje "REPLAY DE OTRA ERA", nunca una pelea distinta.
+  - [x] Un replay pesa < 50 KB; el servidor rechaza payloads mayores y limita publicaciones por IP.
+  - [x] Los 3 mejores duelos recientes se listan en la pantalla de ranking como "DUELOS MEMORABLES".
 
-### 1.4 Espectadores en vivo — esfuerzo M (opcional dentro de la fase)
+### 1.4 Espectadores en vivo — esfuerzo M — ✅ HECHO
 
 Mismo principio que el replay pero en directo: el servidor reenvía los `i{k,v}` de ambos lados a
 mirones de solo lectura, que simulan con unos tics de retraso.
 
 - **Criterios de aceptación:**
-  - [ ] Un espectador que entra ANTES del duelo lo ve entero idéntico a los jugadores (mismo hash al final).
-  - [ ] El espectador no puede inyectar inputs (el servidor descarta cualquier `i` de un socket mirón).
-  - [ ] Con 5 espectadores en un duelo, los dos jugadores no notan lag añadido (el relé no espera a los mirones).
-  - [ ] Desde el título se puede "VER DUELO EN CURSO" si `jugando > 0`.
+  - [x] Un espectador que entra ANTES del duelo lo ve entero idéntico a los jugadores (mismo hash al final).
+  - [x] El espectador no puede inyectar inputs (el servidor descarta cualquier `i` de un socket mirón).
+  - [x] Con 5 espectadores en un duelo, los dos jugadores no notan lag añadido (el relé no espera a los mirones).
+  - [x] Desde el título se puede "VER DUELO EN CURSO" si `jugando > 0`.
 
 ---
 
@@ -266,8 +267,8 @@ reporte host/invitado como en el duelo.
 ## Orden sugerido y dependencias
 
 ```
-AHORA      commit colisión de cuerpos (Fase 0, ya escrita) + smoke
-FASE 1     1.2 revancha (S) → 1.1 salas privadas (M) → 1.3 replays (M) → [1.4 espectadores]
+HECHO      Fase 0 (colisión) y FASE 1 entera (revancha, salas, replays, espectadores)
+AHORA      FASE 2: 2.1 kamae + protocolo v (L) → 2.2 iaijutsu (S)
 FASE 2     2.1 kamae + protocolo v (L) → 2.2 iaijutsu (S)     ← el corazón del juego
 FASE 3     3.1 diario (M) → 3.2 yokai en RŌNIN (M) → 3.3 gestas (S)
 FASE 4     4.1 mecenas + Stripe (L) → 4.2 muro del dojo (S)

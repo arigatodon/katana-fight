@@ -311,7 +311,8 @@ function estado(id) {
   return {
     presentes: presence.size,                        // mirando el título (incluye al que pregunta)
     esperando: (waiting && waiting.readyState === 1) ? 1 : 0,
-    jugando: Math.floor(enDuelo / 2),                // duelos en curso
+    jugando: Math.floor(enDuelo / 2),                // partidas en curso (duelo + co-op)
+    duelos: duels.size,                              // duelos 1v1 que se pueden mirar en vivo
   };
 }
 
@@ -516,6 +517,65 @@ function joinRoom(ws, code, beat) {
   }
 }
 
+// ---------------- Espectadores en vivo ----------------
+// El lockstep hace el "modo mirón" casi gratis: el servidor guarda, por
+// duelo, la semilla, los guerreros elegidos y los inputs ya jugados; al
+// mirón se le manda ese pasado de golpe y el directo a continuación, y su
+// navegador re-simula la pelea igual que un replay. Es de SOLO lectura:
+// cualquier mensaje que envíe un mirón se descarta sin mirarlo, y el relé
+// jamás espera por ellos (send no bloquea a los duelistas).
+const duels = new Set();             // duelos 1v1 en curso (mirables)
+const MAX_WATCHERS = 20;             // mirones por duelo
+const MAX_SPEC_TICKS = 72000;        // ~20 min; más allá el duelo deja de aceptar mirones
+
+function watchSnapshot(d) {
+  return JSON.stringify({ t: 'watch', seed: d.seed, names: d.names, chars: d.chars, i: d.i });
+}
+
+function toWatchers(d, msg) {
+  for (const w of d.watchers) if (w.readyState === 1) w.send(msg);
+}
+
+// duelo nuevo (o revancha: los mirones se quedan y reciben el duelo fresco)
+function registerDuel(a, b, seed) {
+  const prev = a.duel;
+  const d = {
+    seed, names: [a.name, b.name], chars: [null, null],
+    i: [[], []],                     // input de cada lado, indexado por tic
+    watchers: prev ? prev.watchers : new Set(),
+  };
+  if (prev) duels.delete(prev);
+  if (b.duel) duels.delete(b.duel);
+  a.duel = b.duel = d;
+  duels.add(d);
+  for (const w of d.watchers) {
+    w.watching = d;
+    if (w.readyState === 1) w.send(watchSnapshot(d));
+  }
+}
+
+function specJoin(ws) {
+  let target = null;
+  for (const d of duels) if (d.watchers.size < MAX_WATCHERS) { target = d; break; }
+  if (!target) { ws.send('{"t":"nadaw"}'); return; }
+  ws.watching = target;
+  target.watchers.add(ws);
+  ws.send(watchSnapshot(target));
+  console.log(new Date().toISOString(),
+    `mirón viendo: ${target.names[0]} vs ${target.names[1]} (${target.watchers.size} mirando)`);
+}
+
+// un duelista se fue: se avisa a los mirones y el duelo deja de ser mirable
+function dropDuel(d) {
+  if (!d) return;
+  duels.delete(d);
+  for (const w of d.watchers) {
+    if (w.readyState === 1) { w.send('{"t":"byew"}'); w.close(); }
+    w.watching = null;
+  }
+  d.watchers.clear();
+}
+
 // El co-op del beat 'em up es autoritativo por host: el lado 0 (anfitrión)
 // simula la partida y transmite snapshots; el lado 1 (invitado) solo envía su
 // input. Esos snapshots pesan más que el input del duelo, así que el relé
@@ -532,6 +592,7 @@ function pair(a, b, modo) {
   const seed = Math.floor(Math.random() * 0xffffffff);
   a.send(JSON.stringify({ t: 'match', side: 0, seed, foe: b.name }));
   b.send(JSON.stringify({ t: 'match', side: 1, seed, foe: a.name }));
+  if (modo !== 'beat') registerDuel(a, b, seed);   // el duelo 1v1 se puede mirar
   const etq = modo === 'beat' ? 'co-op beat' : 'duelo';
   console.log(new Date().toISOString(), `${etq} emparejado: ${a.name} vs ${b.name} (semilla ${seed})`);
 }
@@ -554,6 +615,7 @@ function askRematch(ws) {
   const seed = Math.floor(Math.random() * 0xffffffff);
   a.send(JSON.stringify({ t: 'match', side: 0, seed, foe: b.name }));
   b.send(JSON.stringify({ t: 'match', side: 1, seed, foe: a.name }));
+  if (!a.beat) registerDuel(a, b, seed);   // los mirones siguen viendo la revancha
   console.log(new Date().toISOString(), `revancha: ${a.name} vs ${b.name} (semilla ${seed})`);
 }
 
@@ -563,11 +625,13 @@ wss.on('connection', ws => {
   ws.on('pong', () => { ws.isAlive = true; });
 
   ws.on('message', data => {
+    if (ws.watching) return;                  // los mirones son de SOLO lectura
     const raw = data.toString();
     if (!ws.peer) {
       if (raw.length > 512) return;           // el handshake es pequeño
       let m;
       try { m = JSON.parse(raw); } catch (e) { return; }
+      if (m.t === 'watch') { specJoin(ws); return; }   // mirón: ver un duelo en curso
       if (m.t === 'join') {
         ws.name = String(m.name || '').replace(/[^\p{L}\p{N} _.-]/gu, '')
           .trim().slice(0, 12).toUpperCase() || 'ANÓNIMO';
@@ -594,6 +658,24 @@ wss.on('connection', ws => {
     if (raw.startsWith('{"t":"result"')) { recordResult(ws, raw); return; }
     // petición de revancha: el servidor la gestiona (no es un relé ciego)
     if (raw.startsWith('{"t":"rematch"')) { askRematch(ws); return; }
+    // duelo con mirones: guarda y retransmite lo que reconstruye la pelea
+    const d = ws.duel;
+    if (d) {
+      if (raw.startsWith('{"t":"i"')) {
+        let m; try { m = JSON.parse(raw); } catch (e) { m = null; }
+        if (m && Number.isInteger(m.k) && m.k >= 0) {
+          if (m.k < MAX_SPEC_TICKS) d.i[ws.side][m.k] = m.v | 0;
+          else duels.delete(d);              // duelo eterno: sin mirones nuevos
+          if (d.watchers.size) toWatchers(d, JSON.stringify({ t: 'iw', s: ws.side, k: m.k, v: m.v | 0 }));
+        }
+      } else if (raw.startsWith('{"t":"char"')) {
+        let m; try { m = JSON.parse(raw); } catch (e) { m = null; }
+        if (m) {
+          d.chars[ws.side] = cleanId(m.id);
+          if (d.watchers.size) toWatchers(d, JSON.stringify({ t: 'charw', s: ws.side, id: d.chars[ws.side] }));
+        }
+      }
+    }
     // emparejado: relé directo al rival/compañero, sin mirar el contenido
     if (ws.peer.readyState === 1) ws.peer.send(raw);
   });
@@ -603,6 +685,15 @@ wss.on('connection', ws => {
     if (waitingBeat === ws) waitingBeat = null;
     const room = ws.roomCode && rooms.get(ws.roomCode);
     if (room && room.ws === ws) rooms.delete(ws.roomCode);
+    if (ws.watching) {                       // un mirón se va: nadie lo nota
+      ws.watching.watchers.delete(ws);
+      ws.watching = null;
+    }
+    if (ws.duel) {                           // un duelista se va: adiós al duelo mirable
+      dropDuel(ws.duel);
+      if (ws.peer) ws.peer.duel = null;
+      ws.duel = null;
+    }
     if (ws.peer) {
       if (ws.peer.readyState === 1) ws.peer.send(JSON.stringify({ t: 'bye' }));
       ws.peer.peer = null;

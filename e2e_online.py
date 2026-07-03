@@ -152,9 +152,43 @@ try:
             wait_for(RA, "scene === 'fight'", 25000); wait_for(RB, "scene === 'fight'", 25000)
             wait_for(RA, "roundStartTimer <= 0", 10000)
 
+            # ---- espectador en vivo: un tercer navegador mira el duelo ----
+            SP = browser.new_page()
+            SP.goto(URL)
+            SP.wait_for_function("typeof specConnect === 'function'")
+            est = SP.evaluate("fetch(netHttpBase() + '/estado').then(r => r.json())")
+            check('/estado anuncia el duelo mirable', est.get('duelos', 0) >= 1, json.dumps(est))
+            SP.evaluate("""() => {
+              window.__snap = {};
+              const _u = update;
+              update = function (dt) {
+                _u(dt);
+                if (replayActive()) {
+                  __snap[replay.tick] = [p1 && p1.x, p1 && p1.y, p1 && p1.vida, p1 && p1.postura,
+                                         p2 && p2.x, p2 && p2.y, p2 && p2.vida, p2 && p2.postura,
+                                         roundNum, scene].join(',');
+                }
+              };
+            }""")
+            SP.evaluate('specConnect()')
+            wait_for(SP, "replay && replay.live && replay.playing", 15000)
+            check('mirón conectado y re-simulando en vivo', True)
+            # el mirón intenta inyectar un input: el servidor debe descartarlo
+            # (si llegara al relé, las simulaciones de abajo divergirían)
+            SP.evaluate("spec.ws.send(JSON.stringify({ t: 'i', k: 3, v: 63 }))")
+
             # duelo 1 completo: REMA machaca, REMB no se defiende
             check('duelo 1 terminado', machacar_hasta(RA, RB, 'matchEnd'))
             snap_d1 = comparar_snaps(RA, RB, 'duelo 1')
+
+            # el mirón debe llegar al MISMO final, tic a tic
+            wait_for(SP, "scene === 'matchEnd' && replay && !replay.playing", 30000)
+            spsnap = SP.evaluate('window.__snap')
+            com_sp = sorted(set(snap_d1) & set(spsnap), key=int)
+            ig_sp = sum(1 for k in com_sp if snap_d1[k] == spsnap[k])
+            check('el mirón ve el mismo duelo (tic a tic)',
+                  len(com_sp) > 500 and ig_sp == len(com_sp), f'{ig_sp}/{len(com_sp)} tics')
+            SP.evaluate('window.__snap = {}')
             check('resultado en ambos', RA.evaluate('netResult !== null') and RB.evaluate('netResult !== null'))
 
             # el lado 0 publicó el replay y compartió el id con el rival
@@ -180,6 +214,11 @@ try:
             check('lockstep limpio para la revancha',
                   RA.evaluate('net.tick === 0 && net.inputs[0].size === 0 && net.inputs[1].size === 0'))
 
+            # el mirón sigue conectado: recibe la revancha fresca y espera guerreros
+            wait_for(SP, f"spec && spec.seed === {semilla2}", 8000)
+            check('el mirón sigue a la revancha (semilla nueva)',
+                  SP.evaluate("scene === 'mirar' && replay === null"))
+
             # duelo 2 (la revancha) también completo y tic a tic idéntico
             for pg in (RA, RB): pg.evaluate(SNAP_HOOK)
             RA.keyboard.press('Enter')
@@ -187,7 +226,15 @@ try:
             wait_for(RA, "scene === 'fight'", 25000); wait_for(RB, "scene === 'fight'", 25000)
             wait_for(RA, "roundStartTimer <= 0", 10000)
             check('duelo 2 (revancha) terminado', machacar_hasta(RA, RB, 'matchEnd'))
-            comparar_snaps(RA, RB, 'revancha')
+            snap_d2 = comparar_snaps(RA, RB, 'revancha')
+
+            # el mirón entró ANTES de la revancha: debe verla entera e idéntica
+            wait_for(SP, "scene === 'matchEnd' && replay && !replay.playing", 30000)
+            spsnap2 = SP.evaluate('window.__snap')
+            com_sp2 = sorted(set(snap_d2) & set(spsnap2), key=int)
+            ig_sp2 = sum(1 for k in com_sp2 if snap_d2[k] == spsnap2[k])
+            check('el mirón que entró antes ve la revancha entera idéntica',
+                  len(com_sp2) > 500 and ig_sp2 == len(com_sp2), f'{ig_sp2}/{len(com_sp2)} tics')
 
             # ambos duelos anotados por separado en el ranking
             rows = RB.evaluate("fetch(netHttpBase() + '/ranking').then(r => r.json())")
@@ -204,6 +251,12 @@ try:
             wait_for(RA, "scene === 'ranking'", 5000)
             check('salida limpia al ranking', True)
             RA.close()
+
+            # los duelistas ya no están: el mirón puede salir limpio al título
+            SP.keyboard.press('Escape')
+            wait_for(SP, "scene === 'title'", 5000)
+            check('mirón sale limpio al título', True)
+            SP.close()
 
             # ---- ver el replay del duelo 1: debe re-simular EXACTAMENTE la pelea ----
             RP = browser.new_page()

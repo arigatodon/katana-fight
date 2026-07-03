@@ -15,6 +15,7 @@ function draw(t) {
     case 'nombre':  drawNombre(t); break;
     case 'sala':    drawSala(t); break;
     case 'online':  drawOnline(t); break;
+    case 'mirar':   drawMirar(t); break;
     case 'choose':  drawChoose(t); break;
     case 'virtud':  drawVirtud(t); break;
     case 'vs':      drawVS(t); break;

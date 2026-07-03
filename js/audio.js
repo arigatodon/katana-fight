@@ -6,6 +6,9 @@
 
 const AC = window.AudioContext || window.webkitAudioContext;
 let audio = null;
+// silencio temporal: el espectador en vivo se pone al día simulando cientos
+// de tics por frame y sus SFX sonarían todos a la vez (spec.js/replay.js)
+let sfxMute = false;
 function initAudio() { if (!audio && AC) audio = new AC(); if (audio && audio.state === 'suspended') audio.resume(); }
 
 function noiseBuffer(dur) {
@@ -16,7 +19,7 @@ function noiseBuffer(dur) {
   return buf;
 }
 function noiseHit(dur, type, f0, f1, vol) {
-  if (!audio) return;
+  if (!audio || sfxMute) return;
   const t = audio.currentTime;
   const src = audio.createBufferSource();
   src.buffer = noiseBuffer(dur);
@@ -31,7 +34,7 @@ function noiseHit(dur, type, f0, f1, vol) {
   src.start(t);
 }
 function tone(type, f0, f1, dur, vol) {
-  if (!audio) return;
+  if (!audio || sfxMute) return;
   const t = audio.currentTime;
   const o = audio.createOscillator();
   o.type = type;

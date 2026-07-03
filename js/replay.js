@@ -61,10 +61,24 @@ function replayStart(d) {
 // avanza la reproducción; espejo de netPump pero leyendo de los arrays
 function replayPump(acc) {
   if (replay.paused) return 0;
+  // en vivo (spec.js): si acabamos de entrar a un duelo empezado, ponerse
+  // al día a toda velocidad y en silencio hasta quedar cerca del directo
+  if (replay.live) {
+    let backlog = Math.min(replay.inputs[0].length, replay.inputs[1].length) - replay.tick;
+    if (backlog > 90) {
+      sfxMute = true;
+      let guard = 600;                    // tope por frame: no congelar el navegador
+      while (backlog > 30 && guard-- > 0 && replay.playing && replayStep()) backlog--;
+      sfxMute = false;
+    }
+  }
   let steps = 0;
   const maxSteps = 4 * replay.speed;      // tope de puesta al día por frame
   while (acc >= FIXED_DT && steps < maxSteps) {
-    for (let s = 0; s < replay.speed; s++) replayStep();
+    for (let s = 0; s < replay.speed; s++) {
+      // en vivo: sin el input real del siguiente tic, la simulación ESPERA
+      if (!replayStep()) return Math.min(acc, FIXED_DT * 2);
+    }
     acc -= FIXED_DT;
     steps += replay.speed;
   }
@@ -74,14 +88,24 @@ function replayPump(acc) {
 function replayStep() {
   const T = replay.tick;
   const i0 = replay.inputs[0], i1 = replay.inputs[1];
-  replay.frame = [T < i0.length ? i0[T] : 0, T < i1.length ? i1[T] : 0];
+  // en vivo jamás se rellena con ceros: divergiría del duelo real
+  if (replay.live && (i0[T] == null || i1[T] == null)) return false;
+  // el directo se cortó a mitad del duelo (byew): no hay más que mostrar
+  if (replay.abortAtEnd && scene !== 'matchEnd' && T >= Math.min(i0.length, i1.length)) {
+    replay.playing = false;
+    if (typeof specAbort === 'function') specAbort();
+    return false;
+  }
+  replay.frame = [T < i0.length ? i0[T] | 0 : 0, T < i1.length ? i1[T] | 0 : 0];
   update(FIXED_DT);
   replay.tick++;
   if (scene === 'matchEnd') replay.playing = false;   // el duelo grabado terminó
+  return true;
 }
 
 // salir de la reproducción (ESC o al terminar)
 function replayLeave() {
+  if (typeof specLeave === 'function' && spec) specLeave();   // mirón: cerrar el socket
   replay = null;
   scene = 'title';
 }
@@ -94,13 +118,15 @@ function replayHandleKey(code) {
   return false;
 }
 
-// letrero del modo replay (se dibuja encima de la pelea)
+// letrero del modo replay / en vivo (se dibuja encima de la pelea)
 function drawReplayOverlay(t) {
   ctx.textAlign = 'center';
   ctx.font = 'bold 13px "Courier New", monospace';
-  ctx.fillStyle = replay.paused ? '#e8c050' : '#9ad0e8';
-  const estado = replay.paused ? '⏸ PAUSA' : `▶ ×${replay.speed}`;
-  ctx.fillText(`再生 REPLAY ${estado}`, W / 2, 18);
+  const live = !!replay.live;
+  ctx.fillStyle = replay.paused ? '#e8c050'
+    : live ? (Math.sin(t * 4) > -0.4 ? '#ff6a5a' : '#b03030') : '#9ad0e8';
+  const estado = replay.paused ? '⏸ PAUSA' : live ? '● EN VIVO' : `▶ ×${replay.speed}`;
+  ctx.fillText(live ? `観戦 ${estado}` : `再生 REPLAY ${estado}`, W / 2, 18);
   ctx.font = '11px "Courier New", monospace';
   ctx.fillStyle = '#998';
   ctx.fillText(TOUCH ? 'toca: pausa · mantén: salir' : 'ESPACIO pausa · V velocidad · ESC salir', W / 2, 34);
