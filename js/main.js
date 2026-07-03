@@ -13,6 +13,7 @@ function draw(t) {
     case 'opciones':  drawOpciones(t); break;
     case 'controles': drawControles(t); break;
     case 'nombre':  drawNombre(t); break;
+    case 'sala':    drawSala(t); break;
     case 'online':  drawOnline(t); break;
     case 'choose':  drawChoose(t); break;
     case 'virtud':  drawVirtud(t); break;

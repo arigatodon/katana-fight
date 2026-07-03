@@ -42,6 +42,12 @@ function bmNetName() {
   return (typeof save !== 'undefined' && save && save.onlineName) || 'RŌNIN';
 }
 
+// sala privada del co-op: beat.html?sala=XXXX — el mismo enlace para los dos
+// compañeros (el primero espera, el segundo empareja); comparte la lógica de
+// salas del servidor con el duelo, pero en modo 'beat'
+const BM_SALA_URL = (new URLSearchParams(location.search).get('sala') || '')
+  .replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 8);
+
 // ---------------- conexión / emparejamiento ----------------
 function bmNetStart() {
   if (typeof WebSocket === 'undefined') { bmNetFail('este navegador no soporta el juego en línea'); return; }
@@ -53,7 +59,12 @@ function bmNetStart() {
   bmNet.ws = ws;
   bmScene = 'online';
   bmChooseSel = 0;
-  ws.onopen = () => { bmNet.fase = 'buscando'; bmNetSend({ t: 'join', name: bmNetName(), mode: 'beat' }); };
+  ws.onopen = () => {
+    bmNet.fase = 'buscando';
+    const j = { t: 'join', name: bmNetName(), mode: 'beat' };
+    if (BM_SALA_URL) j.code = BM_SALA_URL;
+    bmNetSend(j);
+  };
   ws.onerror = () => { if (bmNet && bmNet.fase !== 'jugando') bmNetFail('no se encontró el servidor'); };
   ws.onclose = () => {
     if (bmNet && bmNet.fase !== 'error') {

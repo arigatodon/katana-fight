@@ -435,7 +435,11 @@ function bmDrawOnline() {
   bmCenterText('友  CO-OP EN LÍNEA', 34, H * 0.3, '#6ab0e8', '#1a3a5a');
   const fase = bmNet ? bmNet.fase : 'error';
   let msg = 'conectando…', sub = '';
-  if (fase === 'buscando') { msg = 'buscando un compañero…'; sub = 'comparte el enlace para que alguien entre al modo'; }
+  if (fase === 'buscando') {
+    msg = BM_SALA_URL ? 'esperando a tu compañero…' : 'buscando un compañero…';
+    sub = BM_SALA_URL ? `sala privada ${BM_SALA_URL} — el mismo enlace sirve para los dos`
+                      : 'comparte el enlace para que alguien entre al modo';
+  }
   else if (fase === 'eligiendo') { msg = 'compañero encontrado'; sub = 'elige tu guerrero'; }
   else if (fase === 'esperando') { msg = 'esperando que tu compañero elija…'; sub = 'compañero: ' + (bmNetFoe || '???'); }
   else if (fase === 'error') { msg = bmNetError || 'error de conexión'; sub = ''; }

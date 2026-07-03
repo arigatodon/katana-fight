@@ -413,6 +413,25 @@ const wss = new WebSocketServer({ server: httpServer });   // acepta /ws y cualq
 let waiting = null;          // cola del DUELO 1v1
 let waitingBeat = null;      // cola del CO-OP del beat 'em up (KATANA RŌNIN)
 
+// Salas privadas: join{code} empareja SOLO contra ese código, saltándose la
+// cola pública. La unión es simétrica (no hay "crear" ni "unirse": el primero
+// que llega espera, el segundo empareja), así el mismo enlace ?sala=XXXX
+// sirve para los dos amigos. Caducan solas si nadie llega.
+const rooms = new Map();             // código → { ws, t, beat }
+const ROOM_TTL = 10 * 60 * 1000;     // 10 min esperando y la sala caduca
+
+function joinRoom(ws, code, beat) {
+  ws.roomCode = code;
+  const room = rooms.get(code);
+  if (room && room.ws !== ws && room.ws.readyState === 1 && room.beat === beat) {
+    rooms.delete(code);
+    pair(room.ws, ws, beat ? 'beat' : 'duelo');
+    console.log(new Date().toISOString(), `sala privada ${code} completa`);
+  } else {
+    rooms.set(code, { ws, t: Date.now(), beat });
+  }
+}
+
 // El co-op del beat 'em up es autoritativo por host: el lado 0 (anfitrión)
 // simula la partida y transmite snapshots; el lado 1 (invitado) solo envía su
 // input. Esos snapshots pesan más que el input del duelo, así que el relé
@@ -471,6 +490,9 @@ wss.on('connection', ws => {
         // dos colas separadas: el duelo 1v1 no se empareja con el co-op del beat
         const beat = m.mode === 'beat';
         ws.beat = beat;
+        // sala privada: con código no se pisa la cola pública
+        const code = String(m.code || '').replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 8);
+        if (code) { joinRoom(ws, code, beat); return; }
         if (beat) {
           if (waitingBeat && waitingBeat !== ws && waitingBeat.readyState === 1) {
             const w = waitingBeat; waitingBeat = null; pair(w, ws, 'beat');
@@ -495,6 +517,8 @@ wss.on('connection', ws => {
   ws.on('close', () => {
     if (waiting === ws) waiting = null;
     if (waitingBeat === ws) waitingBeat = null;
+    const room = ws.roomCode && rooms.get(ws.roomCode);
+    if (room && room.ws === ws) rooms.delete(ws.roomCode);
     if (ws.peer) {
       if (ws.peer.readyState === 1) ws.peer.send(JSON.stringify({ t: 'bye' }));
       ws.peer.peer = null;
@@ -506,11 +530,22 @@ wss.on('connection', ws => {
 });
 
 // latido: expulsa conexiones muertas (móviles que pierden señal, etc.)
+// y caduca las salas privadas donde nadie llegó
 setInterval(() => {
   for (const ws of wss.clients) {
     if (!ws.isAlive) { ws.terminate(); continue; }
     ws.isAlive = false;
     ws.ping();
+  }
+  const limite = Date.now() - ROOM_TTL;
+  for (const [code, room] of rooms) {
+    if (room.t < limite || room.ws.readyState !== 1) {
+      rooms.delete(code);
+      if (room.ws.readyState === 1) {
+        room.ws.send('{"t":"salaCaduca"}');
+        room.ws.close();
+      }
+    }
   }
 }, 30000);
 

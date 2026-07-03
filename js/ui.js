@@ -172,9 +172,13 @@ function sanitizeName(s) {
   return String(s || '').replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 12).toUpperCase();
 }
 
+let nombreSel = 0;    // 0 = buscar rival (cola pública) · 1 = sala con un amigo
+
 function enterNombre() {
   scene = 'nombre';
+  nombreSel = 0;
   nameInput.value = save.onlineName || '';
+  nameInput.placeholder = '';
   nameInput.style.display = 'block';
   setTimeout(() => nameInput.focus(), 50);
 }
@@ -188,16 +192,50 @@ function confirmName() {
   const name = sanitizeName(nameInput.value);
   save.onlineName = name;
   persist();
+  sfxConfirm();
+  if (SALA_URL) {                    // vino con enlace de sala: directo con el amigo
+    hideNameInput();
+    netConnect(name || 'ANÓNIMO', SALA_URL);
+    scene = 'online';
+    return;
+  }
+  if (nombreSel === 1) { enterSala(); return; }
+  hideNameInput();
+  netConnect(name || 'ANÓNIMO');
+  scene = 'online';
+}
+
+// escena 'sala': escribir el código del amigo, o dejarlo vacío para crear una
+function enterSala() {
+  scene = 'sala';
+  nameInput.value = '';
+  nameInput.placeholder = 'CÓDIGO';
+  setTimeout(() => nameInput.focus(), 50);
+}
+
+function confirmSala() {
+  let code = String(nameInput.value || '').replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 8);
+  if (!code) code = nuevaSala();
   hideNameInput();
   sfxConfirm();
-  netConnect(name || 'ANÓNIMO');
+  netConnect(save.onlineName || 'ANÓNIMO', code);
   scene = 'online';
 }
 
 if (nameInput) {
   nameInput.addEventListener('keydown', e => {
+    if (scene === 'sala') {
+      if (e.key === 'Enter') confirmSala();
+      if (e.key === 'Escape') enterNombre();
+      return;
+    }
     if (e.key === 'Enter') confirmName();
     if (e.key === 'Escape') { hideNameInput(); scene = 'title'; }
+    if (!SALA_URL && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      nombreSel = 1 - nombreSel;
+      sfxSelect();
+      e.preventDefault();
+    }
   });
 }
 
@@ -326,6 +364,10 @@ function handleMenus() {
       // el caso de confirmar/cancelar con el campo sin foco
       if (code === 'Enter') confirmName();
       if (code === 'Escape') { hideNameInput(); scene = 'title'; }
+      if (!SALA_URL && (code === 'ArrowUp' || code === 'ArrowDown')) { nombreSel = 1 - nombreSel; sfxSelect(); }
+    } else if (scene === 'sala') {
+      if (code === 'Enter') confirmSala();
+      if (code === 'Escape') enterNombre();
     } else if (scene === 'online') {
       if (code === 'Enter' || code === 'Space' || code === 'Escape') { sfxConfirm(); netLeave2Title(); }
     } else if (scene === 'matchEnd') {
@@ -423,7 +465,19 @@ function handleMenus() {
     } else if (scene === 'vs') {
       if (!netActive()) { sfxConfirm(); startMatch(); }
     } else if (scene === 'nombre') {
-      if (Math.abs(tp.x - W / 2) < 130 && Math.abs(tp.y - H * 0.68) < 30) confirmName();
+      if (SALA_URL) {
+        if (Math.abs(tp.x - W / 2) < 170 && Math.abs(tp.y - H * 0.68) < 30) confirmName();
+      } else {
+        for (let i = 0; i < 2; i++) {
+          if (Math.abs(tp.x - W / 2) < 150 && Math.abs(tp.y - H * (0.66 + i * 0.12)) < 24) {
+            nombreSel = i;
+            confirmName();
+          }
+        }
+      }
+    } else if (scene === 'sala') {
+      if (Math.abs(tp.x - W / 2) < 130 && Math.abs(tp.y - H * 0.68) < 30) confirmSala();
+      else if (tp.y > H * 0.82) enterNombre();
     } else if (scene === 'online') {
       sfxConfirm(); netLeave2Title();
     } else if (scene === 'matchEnd') {
@@ -661,12 +715,41 @@ function drawNombre(t) {
   drawCenterText('DUELO EN LÍNEA', 30, H * 0.16, '#e8c050');
   drawCenterText('¿cómo te llamarán en el duelo?', 18, H * 0.28, '#c0b8a8', 'transparent');
   // el campo de texto (HTML) queda centrado en H*0.46
-  const sel = Math.sin(t * 4) > -0.3;
-  ctx.strokeStyle = sel ? '#e8c050' : '#9a8440';
+  const blink = Math.sin(t * 4) > -0.3;
+  if (SALA_URL) {          // llegó con enlace: un solo botón, directo a la sala
+    ctx.strokeStyle = blink ? '#e8c050' : '#9a8440';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(W / 2 - 170, H * 0.68 - 26, 340, 52);
+    drawCenterText(`ENTRAR A LA SALA ${SALA_URL}`, 19, H * 0.69, '#e8c050', 'transparent');
+    drawCenterText('te espera la sala privada de tu amigo', 13, H * 0.88, '#776', 'transparent');
+    return;
+  }
+  const opts = ['BUSCAR RIVAL', 'SALA CON UN AMIGO'];
+  for (let i = 0; i < 2; i++) {
+    const sel = nombreSel === i;
+    const y = H * (0.66 + i * 0.12);
+    ctx.strokeStyle = sel ? (blink ? '#e8c050' : '#9a8440') : '#544';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(W / 2 - 150, y - 26, 300, 46);
+    drawCenterText(opts[i], 18, y, sel ? '#e8c050' : '#887', 'transparent');
+  }
+  drawCenterText(TOUCH ? 'escribe tu nombre y toca una opción' : '↑/↓ cambia · ENTER confirma', 13, H * 0.92, '#776', 'transparent');
+}
+
+// escena 'sala': código privado para jugar con un amigo
+function drawSala(t) {
+  drawBackground();
+  ctx.fillStyle = 'rgba(0,0,0,0.78)';
+  ctx.fillRect(0, 0, W, H);
+  drawCenterText('SALA CON UN AMIGO', 30, H * 0.16, '#e8c050');
+  drawCenterText('escribe el código que te pasó tu amigo…', 16, H * 0.27, '#c0b8a8', 'transparent');
+  drawCenterText('…o déjalo vacío y ENTER para crear una sala nueva', 14, H * 0.33, '#998', 'transparent');
+  const blink = Math.sin(t * 4) > -0.3;
+  ctx.strokeStyle = blink ? '#e8c050' : '#9a8440';
   ctx.lineWidth = 2;
   ctx.strokeRect(W / 2 - 130, H * 0.68 - 26, 260, 52);
-  drawCenterText('BUSCAR RIVAL', 20, H * 0.69, '#e8c050', 'transparent');
-  drawCenterText(TOUCH ? 'escribe y toca BUSCAR RIVAL' : 'escribe tu nombre y pulsa ENTER', 13, H * 0.88, '#776', 'transparent');
+  drawCenterText('ENTRAR', 20, H * 0.69, '#e8c050', 'transparent');
+  drawCenterText(TOUCH ? 'toca ENTRAR · toca abajo para volver' : 'ENTER entra · ESC vuelve', 13, H * 0.88, '#776', 'transparent');
 }
 
 // pantalla del duelo en línea: conexión, búsqueda y errores
@@ -694,8 +777,16 @@ function drawOnline(t) {
   let msg = '';
   if (!net || net.fase === 'error') msg = (net && net.error) || 'sin conexión';
   else if (net.fase === 'conectando') msg = 'forjando la conexión…';
-  else if (net.fase === 'buscando') msg = 'buscando un rival digno…';
+  else if (net.fase === 'buscando') msg = net.code ? 'esperando a tu amigo…' : 'buscando un rival digno…';
   else if (net.fase === 'esperando') msg = `${net.foeName} elige a su guerrero…`;
+
+  // sala privada: el código bien grande y el enlace para compartir
+  if (net && net.code && net.fase === 'buscando') {
+    drawCenterText(`SALA  ${net.code}`, 26, H * 0.34, '#e8c050');
+    const link = salaLink(net.code);
+    drawCenterText(link ? `comparte el enlace: ${link}` : `dile a tu amigo que entre con el código ${net.code}`,
+                   13, H * 0.395, '#9ad0e8', 'transparent');
+  }
   const dots = '.'.repeat(1 + (Math.floor(t * 2) % 3));
   const searching = net && net.fase !== 'error';
   drawCenterText(msg + (searching ? ' ' + dots : ''), 18, H * 0.68,

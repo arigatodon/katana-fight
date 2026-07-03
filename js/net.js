@@ -82,12 +82,34 @@ function netReportResult(winner) {
   netSend({ t: 'result', winner: side, score });
 }
 
-function netConnect(name) {
+// ---------------- Salas privadas ----------------
+// código de sala en la URL (?sala=KIRI): el mismo enlace sirve para los dos
+// amigos — el primero que llega la crea, el segundo empareja
+const SALA_URL = (new URLSearchParams(location.search).get('sala') || '')
+  .replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 8);
+
+// código nuevo de 4 letras (sin caracteres confundibles); es meta-juego,
+// no toca la simulación, así que puede salir de Math.random
+function nuevaSala() {
+  const abc = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+  let c = '';
+  for (let i = 0; i < 4; i++) c += abc[Math.floor(Math.random() * abc.length)];
+  return c;
+}
+
+// enlace compartible de la sala (para pasarlo por chat)
+function salaLink(code) {
+  if (!/^https?:/.test(location.protocol)) return '';
+  return location.origin + location.pathname + '?sala=' + code;
+}
+
+function netConnect(name, code) {
   netResult = null;
   net = {
     ws: null, fase: 'conectando', error: null,
     side: 0, seed: 0, myChar: null, foeChar: null,
     myName: name || 'ANÓNIMO', foeName: '???',
+    code: code || null,
     tick: 0, frame: [0, 0], inputs: [new Map(), new Map()],
     stallT: 0,
   };
@@ -95,7 +117,12 @@ function netConnect(name) {
   try { ws = new WebSocket(netUrl()); }
   catch (e) { netFail('no se pudo abrir la conexión'); return; }
   net.ws = ws;
-  ws.onopen = () => { net.fase = 'buscando'; netSend({ t: 'join', name: net.myName }); };
+  ws.onopen = () => {
+    net.fase = 'buscando';
+    const j = { t: 'join', name: net.myName };
+    if (net.code) j.code = net.code;
+    netSend(j);
+  };
   ws.onerror = () => { if (net && net.fase !== 'jugando') netFail('no se encontró el servidor'); };
   ws.onclose = () => {
     if (net && net.fase !== 'error') {
@@ -138,6 +165,8 @@ function netMsg(m) {
     net.inputs[1 - net.side].set(m.k, m.v);
   } else if (m.t === 'rematch') {     // el rival pide revancha
     if (netRematch) { netRematch.theirs = true; sfxSelect(); }
+  } else if (m.t === 'salaCaduca') {  // nadie llegó a la sala privada
+    netFail('nadie llegó a la sala — vuelve a intentarlo');
   } else if (m.t === 'bye') {
     if (scene === 'matchEnd') {                   // duelo ya terminado: sin drama
       if (netRematch) netRematch.gone = true;

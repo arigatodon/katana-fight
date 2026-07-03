@@ -249,6 +249,33 @@ try:
                   '¡gran juego!' in com['html'] and '<script>x' not in com['html']
                   and 'TESTER' in com['html'])
             C.close()
+
+            # ---- salas privadas: dos amigos con ?sala= + un intruso en la cola ----
+            def entrar_online(pg, nombre):
+                pg.wait_for_function("typeof scene !== 'undefined' && scene === 'title'")
+                pg.keyboard.press('ArrowDown'); pg.keyboard.press('Enter')
+                wait_for(pg, "scene === 'nombre'")
+                pg.fill('#nameInput', nombre); pg.keyboard.press('Enter')
+
+            INT = browser.new_page(); INT.goto(URL)
+            entrar_online(INT, 'INTRUSO')             # cola pública
+            wait_for(INT, "net && net.fase === 'buscando'")
+
+            S1 = browser.new_page(); S1.goto(URL + '&sala=amigos!x')   # se sanea a AMIGOSX
+            entrar_online(S1, 'AMIGO1')
+            wait_for(S1, "net && net.fase === 'buscando'")
+            check('sala saneada y en espera', S1.evaluate('net.code') == 'AMIGOSX',
+                  repr(S1.evaluate('net.code')))
+            check('el intruso no entra a la sala', INT.evaluate("net.fase === 'buscando'"))
+
+            S2 = browser.new_page(); S2.goto(URL + '&sala=AMIGOSX')
+            entrar_online(S2, 'AMIGO2')
+            wait_for(S1, "scene === 'choose'", 8000); wait_for(S2, "scene === 'choose'", 8000)
+            check('amigos emparejados por código',
+                  S1.evaluate('net.foeName') == 'AMIGO2' and S2.evaluate('net.foeName') == 'AMIGO1')
+            check('el intruso sigue esperando en la cola pública',
+                  INT.evaluate("net && net.fase === 'buscando'"))
+            for pg in (INT, S1, S2): pg.close()
         browser.close()
 except Exception as e:
     fallos.append(f'EXCEPCIÓN: {type(e).__name__}: {e}')
