@@ -317,6 +317,7 @@ function update(dt) {
   if (scene === 'fight' || scene === 'roundEnd') {
     updatePlayer(p1, p2, true, sdt);
     updatePlayer(p2, p1, false, sdt);
+    resolveBodyCollision();
     if (scene === 'fight' && roundStartTimer <= 0) {
       updateCombat();
       updateStageHazards(sdt);
@@ -331,6 +332,26 @@ function update(dt) {
       else startRoundFlow();
     }
   }
+}
+
+// Colisión de cuerpos: los dos samuráis no pueden ocupar el mismo sitio, se
+// empujan para no encimarse (así siempre se ve quién es quién). Determinista
+// —solo usa posiciones y escala, sin Math.random— para no romper el lockstep.
+function resolveBodyCollision() {
+  if (p1.state === PSTATE.DEAD || p2.state === PSTATE.DEAD) return;
+  // si hay separación vertical clara (uno saltó), se puede pasar por encima
+  if (Math.abs(p1.y - p2.y) > 46) return;
+  const minGap = 18 * (p1.scale || 1) + 18 * (p2.scale || 1);
+  const dx = p2.x - p1.x, dist = Math.abs(dx);
+  if (dist >= minGap || dist < 0.0001) return;
+  const overlap = minGap - dist, dir = dx >= 0 ? 1 : -1;
+  const lo = 26, hi = W - 26;
+  // empuje simétrico; si uno topa con el borde, el otro absorbe el resto
+  let nx1 = p1.x - dir * overlap / 2, nx2 = p2.x + dir * overlap / 2;
+  if (nx1 < lo) { nx2 += lo - nx1; nx1 = lo; } else if (nx1 > hi) { nx2 -= nx1 - hi; nx1 = hi; }
+  if (nx2 < lo) { nx1 += lo - nx2; nx2 = lo; } else if (nx2 > hi) { nx1 -= nx2 - hi; nx2 = hi; }
+  p1.x = Math.max(lo, Math.min(hi, nx1));
+  p2.x = Math.max(lo, Math.min(hi, nx2));
 }
 
 // ---------------- Peligros del escenario ----------------
