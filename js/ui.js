@@ -7,6 +7,7 @@
 
 const TITLE_OPTS = [
   { id: 'arcade', label: 'MODO ARCADE' },
+  { id: 'diario', label: 'DESAFÍO DEL DÍA' },
   { id: 'online', label: 'DUELO EN LÍNEA' },
   { id: 'final',  label: 'GOLPE FINAL' },
   { id: 'vs2',    label: '2 JUGADORES' },
@@ -14,9 +15,15 @@ const TITLE_OPTS = [
   { id: 'rank',   label: 'RÉCORDS' },
 ];
 
+// geometría del menú del título (compartida por dibujo y toque); con 7
+// opciones se compacta un poco para que quepan con su descripción
+const TITLE_MENU_Y0 = 0.455, TITLE_MENU_DY = 36;
+function titleRowY(i) { return H * TITLE_MENU_Y0 + i * TITLE_MENU_DY; }
+
 // breve descripción de la opción resaltada (debajo del menú)
 const TITLE_DESC = {
   arcade: '5 duelos y un rival secreto',
+  diario: 'el mismo torneo para todos, hoy · un intento cuenta',
   online: 'emparejamiento · tu récord se guarda',
   final:  'un solo corte decide el duelo',
   vs2:    'dos jugadores en la misma pantalla',
@@ -63,12 +70,13 @@ function toggleFullscreen() {
 // tabla de récords: una pestaña por modo de juego (+ duelos grabados)
 const RANK_TABS = [
   { id: 'torneo', label: 'ARCADE' },
+  { id: 'diario', label: 'DÍA' },
   { id: 'final',  label: 'GOLPE FINAL' },
   { id: 'online', label: 'EN LÍNEA' },
   { id: 'duelos', label: 'DUELOS' },
 ];
 let rankTab = 0;
-let rankTabX = i => W / 2 + (i - (RANK_TABS.length - 1) / 2) * 195;
+let rankTabX = i => W / 2 + (i - (RANK_TABS.length - 1) / 2) * 168;
 
 // duelos grabados recientes (replays del servidor), los mejores primero
 let netReplays = null;         // { fase, rows }
@@ -91,6 +99,7 @@ function setRankTab(i) {
   rankTab = (i + RANK_TABS.length) % RANK_TABS.length;
   if (RANK_TABS[rankTab].id === 'online') fetchNetRanking();
   if (RANK_TABS[rankTab].id === 'duelos') fetchNetReplays();
+  if (RANK_TABS[rankTab].id === 'diario') fetchDiario();
 }
 
 // enlaces del título (también vale el footer HTML en escritorio)
@@ -105,6 +114,7 @@ function titleChoose(i) {
   if (id === 'vs2') { start2P(); return; }
   if (id === 'online') { enterNombre(); return; }
   if (id === 'opts') { enterOpciones(); return; }
+  if (id === 'diario') { startRun(false, true); return; }   // desafío del día
   startRun(id === 'final');   // arcade = false · golpe final = true
 }
 
@@ -463,12 +473,12 @@ function handleMenus() {
       // "mirar el duelo en curso" (a la derecha del menú, bajo la presencia)
       if (netPresence && netPresence.duelos > 0) {
         const onlineI = TITLE_OPTS.findIndex(o => o.id === 'online');
-        if (tp.x > W * 0.68 && Math.abs(tp.y - (H * 0.50 + onlineI * 40 + 20)) < 12) {
+        if (tp.x > W * 0.68 && Math.abs(tp.y - (titleRowY(onlineI) + 20)) < 12) {
           sfxConfirm(); specConnect(); continue;
         }
       }
       for (let i = 0; i < TITLE_OPTS.length; i++) {
-        if (Math.abs(tp.y - (H * 0.50 + i * 40)) < 18) {
+        if (Math.abs(tp.y - titleRowY(i)) < 17) {
           if (menuSel === i) titleChoose(i);
           else { menuSel = i; sfxSelect(); }
         }
@@ -646,13 +656,26 @@ function drawTitle(t) {
     const blink = sel && Math.sin(t * 6) > -0.2;
     drawCenterText(
       (sel ? '» ' : '  ') + TITLE_OPTS[i].label + (sel ? ' «' : '  '),
-      24, H * 0.50 + i * 40,
+      23, titleRowY(i),
       blink ? '#e8c050' : (sel ? '#e8c050' : '#888'),
       sel ? '#b03030' : 'transparent'
     );
   }
   // descripción de la opción resaltada
-  drawCenterText(TITLE_DESC[TITLE_OPTS[menuSel].id] || '', 13, H * 0.50 + TITLE_OPTS.length * 40 + 6, '#9a8a6a', 'transparent');
+  drawCenterText(TITLE_DESC[TITLE_OPTS[menuSel].id] || '', 13, titleRowY(TITLE_OPTS.length) + 4, '#9a8a6a', 'transparent');
+
+  // cuenta regresiva del desafío del día, a la derecha de su opción
+  const diarioI = TITLE_OPTS.findIndex(o => o.id === 'diario');
+  if (diarioI >= 0) {
+    ctx.save();
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 13px "Courier New", monospace';
+    const hecho = save.dailyDone === utcDayStr();
+    ctx.fillStyle = hecho ? '#9a8a6a' : (Math.sin(t * 4) > -0.3 ? '#e8c050' : '#b89030');
+    ctx.fillText((hecho ? '✓ hoy jugado · ' : '⏳ ') + fmtCountdown(msToUtcMidnight()),
+                 W * 0.71, titleRowY(diarioI));
+    ctx.restore();
+  }
 
   // aviso del código secreto
   if (cheatMsgFrames > 0) {
@@ -681,7 +704,7 @@ function drawTitle(t) {
       ctx.textAlign = 'left';
       ctx.font = 'bold 13px "Courier New", monospace';
       ctx.fillStyle = col;
-      ctx.fillText(txt, W * 0.71, H * 0.50 + onlineI * 40);
+      ctx.fillText(txt, W * 0.71, titleRowY(onlineI));
       ctx.restore();
     }
     // hay un duelo mirable: invitación a verlo en directo (tecla V o toque)
@@ -691,7 +714,7 @@ function drawTitle(t) {
       ctx.font = 'bold 13px "Courier New", monospace';
       ctx.fillStyle = Math.sin(t * 3) > -0.5 ? '#9ad0e8' : '#5a7a8a';
       ctx.fillText(TOUCH ? '👁 toca aquí: VER EL DUELO' : '👁 V: ver el duelo en vivo',
-                   W * 0.71, H * 0.50 + onlineI * 40 + 20);
+                   W * 0.71, titleRowY(onlineI) + 20);
       ctx.restore();
     }
   }
@@ -1222,6 +1245,7 @@ function drawRanking(t) {
   const cat = RANK_TABS[rankTab].id;
   if (cat === 'online') drawRankRowsOnline(t);
   else if (cat === 'duelos') drawRankRowsDuelos(t);
+  else if (cat === 'diario') drawRankRowsDiario(t);
   else drawRankRowsLocal(save.rankings[cat]);
 
   ctx.textAlign = 'left';
@@ -1280,6 +1304,38 @@ function drawRankRowsDuelos(t) {
     ctx.fillText(`${sel ? '» ' : '  '}${vencedor} vence a ${vencido} · ${r.score} pts · ${r.fecha}${sel ? ' «' : ''}`, W / 2, y);
   }
   drawCenterText(TOUCH ? 'toca un duelo para revivirlo' : 'W/S elegir · ENTER revivir el duelo', 13, H * 0.86, '#9ad0e8', 'transparent');
+}
+
+// board del desafío del día (lo sirve el servidor: GET /diario)
+function drawRankRowsDiario(t) {
+  drawCenterText('日 DESAFÍO DEL DÍA — rota en ' + fmtCountdown(msToUtcMidnight()), 14, 132, '#e8c050', 'transparent');
+  if (!diarioRank || diarioRank.fase === 'cargando') {
+    const dots = '.'.repeat(1 + (Math.floor(t * 2) % 3));
+    drawCenterText('consultando al escriba ' + dots, 16, H * 0.52, '#c0b8a8', 'transparent');
+    return;
+  }
+  if (diarioRank.fase === 'error') {
+    drawCenterText('no se pudo alcanzar el servidor', 16, H * 0.52, '#ff8a7a', 'transparent');
+    return;
+  }
+  if (!diarioRank.rows.length) {
+    drawCenterText('nadie ha completado el desafío de hoy — ¡sé el primero!', 15, H * 0.52, '#776', 'transparent');
+    return;
+  }
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 13px "Courier New", monospace';
+  ctx.fillStyle = '#998';
+  ctx.fillText(' #   NOMBRE          PUNTAJE', W / 2, 162);
+  for (let i = 0; i < diarioRank.rows.length; i++) {
+    const r = diarioRank.rows[i];
+    const y = 190 + i * 30;
+    const top = i === 0;
+    const isMe = r.name === (save.onlineName || save.lastFirma || '').toUpperCase();
+    ctx.font = (top ? 'bold 15px' : '13px') + ' "Courier New", monospace';
+    ctx.fillStyle = isMe ? '#9ad0e8' : top ? '#e8c050' : i < 3 ? '#d8c8a0' : '#b0a890';
+    const row = `${String(i + 1).padStart(2)}   ${String(r.name).padEnd(12)} ${String(r.score).padStart(8)}`;
+    ctx.fillText(row + (isMe ? '  ◂ tú' : ''), W / 2, y);
+  }
 }
 
 // filas del ranking en línea (lo sirve el servidor: GET /ranking)

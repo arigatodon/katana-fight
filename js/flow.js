@@ -15,12 +15,55 @@ function pickBoss() {
   return randomFrom(locked.length ? locked : SECRET_CHARS);
 }
 
-function startRun(final) {
+// ---------------- Desafío diario ----------------
+// Pre-genera TODO el torneo del día desde la semilla de la fecha, con un
+// mulberry32 LOCAL (independiente de rnd(), que la simulación consume de
+// forma variable). Así dos navegadores el mismo día obtienen exactamente el
+// mismo torneo — mismos rivales, jefe, escenarios, destinos y apuestas —
+// sin importar cuánto duren las peleas. Ignora el clima real a propósito.
+function buildDailyPlan(seed) {
+  let s = seed >>> 0;
+  const nx = () => {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const pick = arr => arr[Math.floor(nx() * arr.length)];
+  const MAXR = WIN_ROUNDS * 2 - 1;          // rondas máximas por combate
+  // 3 dones (los mismos para todos ese día)
+  const vpool = VIRTUDES.slice(), virtudOpts = [];
+  for (let i = 0; i < 3; i++) virtudOpts.push(vpool.splice(Math.floor(nx() * vpool.length), 1)[0].id);
+  const fights = [];
+  for (let i = 0; i < RUN_FIGHTS; i++) {
+    const rival = (i === RUN_FIGHTS - 1) ? pick(SECRET_CHARS) : pick(CHARS);
+    const stageId = pick(STAGES).id;
+    const destinoId = (nx() < 0.30 ? DESTINOS[0] : pick(DESTINOS)).id;
+    const p2virtudId = pick(VIRTUDES).id;
+    const bets = [];
+    for (let r = 0; r < MAXR; r++) bets.push([Math.floor(nx() * 3), Math.floor(nx() * 3)]);
+    fights.push({ rivalId: rival.id, stageId, destinoId, p2virtudId, bets });
+  }
+  return { seed, virtudOpts, fights };
+}
+
+function startRun(final, daily) {
   vsCPU = true;
   modoFinal = !!final;
+  dailyRun = !!daily;
   comentarioEnviado = false;     // un comentario por torneo (ui.js)
-  fetchWeather();                // el clima real influirá en los destinos
-  run = { fight: 0, score: 0, boss: pickBoss() };
+  if (dailyRun) {
+    // el plan del día NO consulta el clima (o dos ciudades divergirían)
+    const dia = utcDayStr();
+    dailyPlan = buildDailyPlan(dateSeed(dia));
+    dailyEntrenamiento = save.dailyDone === dia;   // ya jugó hoy: no puntúa
+    run = { fight: 0, score: 0, boss: charById(dailyPlan.fights[RUN_FIGHTS - 1].rivalId) };
+  } else {
+    dailyPlan = null;
+    fetchWeather();              // el clima real influye en los destinos (solo local)
+    run = { fight: 0, score: 0, boss: pickBoss() };
+  }
   runOver = null;
   runUnlocked = null;
   runVirtud = null;
@@ -32,8 +75,11 @@ function startRun(final) {
 function nextFight() {
   run.fight++;
   const isBoss = run.fight === RUN_FIGHTS;
-  // tu guerrero se mantiene todo el torneo; el rival cambia al azar
-  rivalChar = isBoss ? run.boss : randomFrom(CHARS.filter(c => c !== playerChar));
+  // tu guerrero se mantiene todo el torneo; el rival cambia al azar.
+  // En el diario el rival sale del plan (sin filtrar tu guerrero, para que
+  // sea idéntico para todos aunque cada quien elija a otro personaje).
+  if (dailyRun && dailyPlan) rivalChar = charById(dailyPlan.fights[run.fight - 1].rivalId);
+  else rivalChar = isBoss ? run.boss : randomFrom(CHARS.filter(c => c !== playerChar));
   scene = 'vs';
   vsTimer = 2.6;
 }
@@ -81,6 +127,11 @@ function confirmChoose() {
 }
 
 function pickVirtudes() {
+  if (dailyRun && dailyPlan) {   // los mismos 3 dones para todos ese día
+    virtudOpts = dailyPlan.virtudOpts.map(id => VIRTUDES.find(v => v.id === id));
+    virtudSel = 0;
+    return;
+  }
   const pool = VIRTUDES.slice();
   virtudOpts = [];
   for (let i = 0; i < 3; i++) {
@@ -94,16 +145,26 @@ function startMatch() {
   // dependen de ellos, y online ambos clientes deben partir iguales
   gTime = 0; windPhase = 0; timeScale = 1; slowmoTimer = 0;
   shake = 0; flashTimer = 0; darkPulse = 0;
-  stage = randomFrom(STAGES);
+  // diario: escenario del plan (idéntico para todos); si no, al azar
+  const dp = dailyRun && dailyPlan ? dailyPlan.fights[run.fight - 1] : null;
+  stage = dp ? (STAGES.find(s => s.id === dp.stageId) || STAGES[0]) : randomFrom(STAGES);
   // el destino (clima/condición) se fija para TODA la pelea: cada rival
   // trae su propio cielo, no cambia entre rondas
   pickDestino();
-  // torneo: el don elegido al inicio · 2 jugadores: dones al azar
+  // torneo: el don elegido al inicio · 2 jugadores: dones al azar ·
+  // diario: el don del rival sale del plan (mismo reto para todos).
+  // OJO con el orden de rnd(): p2 se crea DESPUÉS de p1 y su don se resuelve
+  // justo antes, igual que cuando era un argumento inline (no reordenar, o
+  // divergiría con clientes que sí mantengan el orden)
   const v1 = vsCPU ? runVirtud : randomFrom(VIRTUDES);
   const cpuBoost = run ? (run.fight - 1) * 1.5 : 0;   // el torneo se endurece
   p1 = makePlayer(W * 0.25, 1, playerChar, false, 'JUGADOR 1', v1, 0);
+  const v2 = dp ? VIRTUDES.find(v => v.id === dp.p2virtudId) : randomFrom(VIRTUDES);
   p2 = makePlayer(W * 0.75, -1, rivalChar, vsCPU, vsCPU ? 'CPU' : 'JUGADOR 2',
-                  randomFrom(VIRTUDES), cpuBoost);
+                  v2, cpuBoost);
+  // diario: sin rasgos raros (salen de rnd() y variarían por navegador) —
+  // todos pelean el mismo emparejamiento puro
+  if (dailyRun) for (const p of [p1, p2]) { p.rasgo = null; deriveAttrs(p); p.postura = p.posMax; }
   if (netActive()) {           // online: el lado rojo es el jugador 0
     p1.name = net.side === 0 ? net.myName + ' (TÚ)' : net.foeName;
     p2.name = net.side === 1 ? net.myName + ' (TÚ)' : net.foeName;
@@ -122,6 +183,13 @@ function startMatch() {
 // Se llama una vez por combate desde startMatch, no cada ronda.
 function pickDestino() {
   destinoPorClima = false;
+  // diario: destino del plan del día — NUNCA del clima real (dos ciudades
+  // con climas distintos jugarían un torneo diferente)
+  if (dailyRun && dailyPlan) {
+    const dp = dailyPlan.fights[run.fight - 1];
+    destino = DESTINOS.find(d => d.id === dp.destinoId) || DESTINOS[0];
+    return;
+  }
   // online y replay cortocircuitan ANTES de rnd(): la corriente del RNG debe
   // ser idéntica a la del duelo original (que tampoco consultó el clima)
   if (!netActive() && !replayActive() && clima && rnd() < 0.55) {
@@ -134,8 +202,14 @@ function pickDestino() {
 
 function startRoundFlow() {
   roundNum++;
-  // la suerte reparte las apuestas cada ronda: al azar pero visibles
-  betSel = [Math.floor(rnd() * 3), Math.floor(rnd() * 3)];
+  // la suerte reparte las apuestas cada ronda: al azar pero visibles.
+  // diario: salen del plan indexadas por ronda (mismas para todos)
+  if (dailyRun && dailyPlan) {
+    const bets = dailyPlan.fights[run.fight - 1].bets;
+    betSel = bets[Math.min(roundNum - 1, bets.length - 1)].slice();
+  } else {
+    betSel = [Math.floor(rnd() * 3), Math.floor(rnd() * 3)];
+  }
   betReveal = 1.8;
   // el destino ya está fijado para la pelea: solo lo presentamos en la
   // primera ronda; las siguientes van directo a las apuestas
@@ -235,7 +309,7 @@ function computeScore(p, foe) {
   s += p.stats.parries * 100;                 // bloqueos perfectos
   if (modoFinal) s += 800;                    // modo Golpe Final
   if (foe.wins === WIN_ROUNDS - 1) s += 400;  // remontada al límite
-  s += save.streak * 150;                     // racha
+  if (!dailyRun) s += save.streak * 150;      // racha personal: NO en el diario (debe ser comparable)
   if (run && run.fight === RUN_FIGHTS) s += 2000;   // venciste al secreto
   return s;
 }
@@ -304,8 +378,29 @@ function continueRun() {
   scene = 'title';        // 2 jugadores
 }
 
+// nombre para el board del día (reusa el del online, o la firma local)
+function dailyName() {
+  return String(save.onlineName || save.lastFirma || 'ANÓNIMO').toUpperCase().slice(0, 12) || 'ANÓNIMO';
+}
+
 // cierre del torneo (desde la pantalla de apoyo): puntaje, firma y ranking
 function finishRunScore() {
+  // desafío diario: va a su propio board del servidor, no a las tablas locales
+  if (dailyRun) {
+    const dia = utcDayStr();
+    if (!dailyEntrenamiento && run && run.score > 0) {
+      netSubmitDaily(dailyName(), run.score);   // solo el primer intento del día cuenta
+      save.dailyDone = dia;
+      persist();
+    }
+    dailyRun = false;
+    run = null;
+    pendingScore = null;
+    fetchDiario();
+    rankTab = RANK_TABS.findIndex(tb => tb.id === 'diario');
+    scene = 'ranking';
+    return;
+  }
   if (run) {
     pendingScore = run.score > 0 ? {
       score: run.score,

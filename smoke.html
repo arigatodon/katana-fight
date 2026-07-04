@@ -102,6 +102,34 @@
                      kamaesUsadas: Array.from(window.__kamaes).sort() };
   } catch (e) { window.__errors.push('driver: ' + e.message); }
 
+  // ---- desafío diario (3.1): plan reproducible e independiente del clima ----
+  try {
+    // el plan se pre-genera de la semilla: misma semilla → mismo torneo
+    const planA = JSON.stringify(buildDailyPlan(20260703));
+    const planB = JSON.stringify(buildDailyPlan(20260703));
+    const planC = JSON.stringify(buildDailyPlan(19990101));
+    // recorrido del modo diario con un clima real FORZADO (debe ignorarse)
+    clima = { destinoId: 'sangre', label: 'forzado' };
+    startRun(false, true);
+    const planCompleto = !!dailyPlan && dailyPlan.fights.length === RUN_FIGHTS;
+    press('Enter'); tick(2);      // elige guerrero (pool[0])
+    press('Enter'); tick(2);      // elige el don (del plan)
+    tick(60 * 9);                 // vs + destino + apuesta + inicio de ronda
+    const fp0 = dailyPlan.fights[0];
+    window.__diario = {
+      planDeterminista: planA === planB,
+      planVariaPorFecha: planA !== planC,
+      planCompleto,
+      jefeSecreto: !!(run && run.boss && run.boss.secret),
+      escenaLlego: scene,
+      destinoIgnoraClima: !!(destino && destino.id === fp0.destinoId),
+      escenarioDelPlan: !!(stage && stage.id === fp0.stageId),
+      apuestaDelPlan: !!(p1 && betSel && betSel[0] === fp0.bets[0][0] && betSel[1] === fp0.bets[0][1]),
+      esDiario: dailyRun,
+    };
+    dailyRun = false; dailyPlan = null;   // no contaminar el resto
+  } catch (e) { window.__errors.push('diario: ' + e.message); }
+
   const pre = document.createElement('pre');
   pre.id = 'result';
   pre.textContent = JSON.stringify({
@@ -115,6 +143,7 @@
     p1virtud: p1 && p1.virtud && p1.virtud.name,
     dosJugadores: window.__2p,
     determinismo: window.__det,
+    diario: window.__diario,
     errores: window.__errors,
   }, null, 1);
   document.body.appendChild(pre);

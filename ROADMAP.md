@@ -142,21 +142,29 @@ pero integrado en toda ronda.
 
 ## FASE 3 — Razones para volver (retención)
 
-### 3.1 Desafío diario — esfuerzo M
+### 3.1 Desafío diario — esfuerzo M — ✅ HECHO
 
 Un torneo al día, igual para todo el mundo: semilla derivada de la fecha UTC
 (`YYYYMMDD` → mulberry32), mismos rivales, destinos, apuestas y escenarios para todos.
 Ranking del día separado en el servidor; a medianoche UTC rota.
 
-- **Importante:** el desafío diario debe **ignorar el clima real** (`weather.js`), igual que el
-  online — si el clima tiñe el destino 55%, los runs de Santiago y Madrid no serían comparables.
-- Un solo intento que puntúa por día (los siguientes se marcan "ENTRENAMIENTO").
+- El plan (`buildDailyPlan` en `flow.js`) se **pre-genera** de la semilla del día con un mulberry32
+  LOCAL, independiente de `rnd()` — clave, porque la simulación consume `rnd()` de forma variable
+  (proyectiles del mercado, etc.) según dure cada pelea, así que un stream corrido divergiría entre
+  jugadores. El plan fija rivales (sin filtrar tu guerrero, para que sea igual aunque elijas otro),
+  jefe, escenarios, destinos, dones y apuestas por ronda. Sin rasgos raros (salen de `rnd()`).
+- El desafío **ignora el clima real** a propósito (`pickDestino` cortocircuita en diario), igual que
+  el online — si el clima tiñe el destino, Santiago y Madrid no serían comparables.
+- Un solo intento que puntúa (`save.dailyDone`); los demás son ENTRENAMIENTO (no se envían). El
+  puntaje excluye la racha personal (`computeScore` sin `save.streak` en diario) para ser comparable.
+- Servidor: `GET/POST /diario`, board por día UTC en `server/data/diario.json` (volumen), un registro
+  por nombre+día (mejor), tope + rate-limit por IP, poda a 14 días. Nuevo tab "DÍA" en RÉCORDS.
 - **Criterios de aceptación:**
-  - [ ] Dos navegadores distintos el mismo día generan exactamente el mismo torneo (mismos 5 rivales + jefe, destinos, apuestas, escenarios).
-  - [ ] El clima real NO influye en el desafío diario (verificable forzando climas distintos).
-  - [ ] `GET /diario` devuelve el top del día; `POST /diario` acepta un solo score por nombre+día.
-  - [ ] El título muestra "DESAFÍO DEL DÍA" con cuenta regresiva a la rotación.
-  - [ ] `smoke.html` incluye un recorrido del modo diario.
+  - [x] Dos navegadores distintos el mismo día generan exactamente el mismo torneo (verificado en `smoke.html`: `planDeterminista`, `escenarioDelPlan`, `apuestaDelPlan`, `jefeSecreto`).
+  - [x] El clima real NO influye en el desafío diario (verificado forzando `clima='sangre'`: `destinoIgnoraClima`).
+  - [x] `GET /diario` devuelve el top del día; `POST /diario` acepta un solo score por nombre+día (verificado con curl: mantiene el mejor, 429 al repetir).
+  - [x] El título muestra "DESAFÍO DEL DÍA" con cuenta regresiva a la rotación (`fmtCountdown`/`msToUtcMidnight`).
+  - [x] `smoke.html` incluye un recorrido del modo diario (`window.__diario`, todo verde).
 
 ### 3.2 Los yokai vencidos son jugables en KATANA RŌNIN — esfuerzo M
 
@@ -277,7 +285,8 @@ reporte host/invitado como en el duelo.
 ```
 HECHO      Fase 0 (colisión), FASE 1 entera (revancha, salas, replays, espectadores)
 HECHO      FASE 2 entera: 2.1 kamae + protocolo v2 (L) → 2.2 iaijutsu (S)
-AHORA      FASE 3: 3.1 diario (M) → 3.2 yokai en RŌNIN (M) → 3.3 gestas (S)
+HECHO      FASE 3.1: desafío diario (torneo del día + board /diario + tab RÉCORDS)
+AHORA      FASE 3: 3.2 yokai en RŌNIN (M) → 3.3 gestas (S)
 FASE 4     4.1 mecenas + Stripe (L) → 4.2 muro del dojo (S)
 FASE 5     5.1 PWA (S) y 5.3 telemetría (S) pueden ir EN CUALQUIER MOMENTO (cuanto antes mejor);
            5.2 táctil kenjutsu tras 2.1; 5.4 anti-trampa beat cuando haya un hueco

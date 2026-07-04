@@ -122,6 +122,31 @@ function rnd() {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 
+// ---------------- Fecha UTC (desafío diario) ----------------
+// El día se mide en UTC para que el desafío rote a la vez en todo el mundo.
+function utcDayStr(d) {                 // 'YYYYMMDD' del día UTC (hoy por defecto)
+  d = d || new Date();
+  return '' + d.getUTCFullYear() +
+    String(d.getUTCMonth() + 1).padStart(2, '0') +
+    String(d.getUTCDate()).padStart(2, '0');
+}
+// hash del 'YYYYMMDD' a un uint32 bien mezclado (días seguidos → semillas
+// muy distintas), para sembrar el plan del día con mulberry32
+function dateSeed(dayStr) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < dayStr.length; i++) { h ^= dayStr.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function msToUtcMidnight() {            // ms hasta la próxima medianoche UTC (rotación)
+  const now = new Date();
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1) - now.getTime();
+}
+function fmtCountdown(ms) {             // 'Xh Ym' hasta que rote el desafío
+  const tot = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(tot / 3600), m = Math.floor((tot % 3600) / 60);
+  return h + 'h ' + m + 'm';
+}
+
 // ---------------- Estado global ----------------
 // Escenas: title | opciones | controles | nombre | sala | online | mirar |
 //          choose | virtud | vs | destino | apuesta | fight | roundEnd |
@@ -148,6 +173,15 @@ let gTime = 0;                  // reloj global para animaciones de UI
 let run = null;                 // { fight, score, boss }
 let runOver = null;             // null = sigue · 'champion' | 'defeat'
 let runUnlocked = null;         // personaje secreto recién desbloqueado
+
+// desafío diario: un torneo idéntico para todo el mundo, derivado de la
+// fecha UTC. El plan (rivales, escenarios, destinos, apuestas) se pre-genera
+// de la semilla del día ANTES de pelear, así no depende de cuánto rnd()
+// consuma la simulación (que varía con la duración de cada pelea).
+let dailyRun = false;           // ¿el torneo actual es el desafío del día?
+let dailyPlan = null;           // { seed, virtudOpts, fights:[{rivalId,stageId,destinoId,p2virtudId,bets}] }
+let dailyEntrenamiento = false; // ya jugó hoy: puntúa como ENTRENAMIENTO (no cuenta)
+let diarioRank = null;          // tabla del día que sirve el servidor (GET /diario)
 let playerChar = null, rivalChar = null;
 
 // selección de personaje

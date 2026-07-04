@@ -136,6 +136,70 @@ function postBeatScore(req, res) {
   });
 }
 
+// ---------------- Desafío diario (KATANA FIGHT del día) ----------------
+// Torneo idéntico para todos, derivado de la fecha UTC en el cliente. El
+// board es por día: { 'YYYYMMDD': { nombre → { score } } }. Como es 1 jugador,
+// el score se confía al cliente (igual que el beat), con un tope sano y un
+// solo registro por nombre+día (se guarda el mejor). El SERVIDOR decide el
+// día en UTC — no confía en la fecha del cliente. Rota a medianoche UTC.
+const DAILY_FILE = path.join(DATA_DIR, 'diario.json');
+const MAX_DAILY_SCORE = 50000;       // 6 duelos con bonos; nada legítimo lo supera
+const DAILY_KEEP_DAYS = 14;          // conserva ~2 semanas de historial
+let diario = {};                     // día → { nombre → { score } }
+try { diario = JSON.parse(fs.readFileSync(DAILY_FILE, 'utf8')); } catch (e) {}
+const lastDailyByIp = new Map();     // antiabuso: 1 envío por IP cada 3 s
+
+function saveDiario() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(DAILY_FILE, JSON.stringify(diario));
+  } catch (e) { console.error('no se pudo guardar el diario:', e.message); }
+}
+
+function utcDay() {                   // 'YYYYMMDD' del día UTC actual (lo fija el server)
+  return new Date().toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+function topDiario(day, n) {
+  const d = diario[day] || {};
+  return Object.entries(d)
+    .map(([name, r]) => ({ name, score: r.score }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, n);
+}
+
+function postDiario(req, res) {
+  let body = '';
+  req.on('data', ch => { body += ch; if (body.length > 1024) req.destroy(); });
+  req.on('end', () => {
+    const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '')
+      .split(',')[0].trim();
+    const day = utcDay();            // el server manda: nada de fechas del cliente
+    if (Date.now() - (lastDailyByIp.get(ip) || 0) < 3000) {
+      res.writeHead(429, CORS_JSON); res.end(JSON.stringify({ ok: false, day, top: topDiario(day, 10) })); return;
+    }
+    lastDailyByIp.set(ip, Date.now());
+    let m; try { m = JSON.parse(body); } catch (e) { m = null; }
+    const name = String((m && m.name) || '').replace(/[^\p{L}\p{N} _.-]/gu, '')
+      .trim().slice(0, 12).toUpperCase() || 'ANÓNIMO';
+    const score = Math.max(0, Math.min(MAX_DAILY_SCORE, Math.floor(+(m && m.score)) || 0));
+    if (score > 0) {
+      diario[day] = diario[day] || {};
+      const cur = diario[day][name];
+      if (!cur || score > cur.score) {   // un registro por nombre+día: el mejor
+        diario[day][name] = { score };
+        // poda: conserva solo los últimos días
+        const dias = Object.keys(diario).sort();
+        while (dias.length > DAILY_KEEP_DAYS) delete diario[dias.shift()];
+        saveDiario();
+        console.log(new Date().toISOString(), `diario ${day}: ${name} → ${score} pts`);
+      }
+    }
+    res.writeHead(200, CORS_JSON);
+    res.end(JSON.stringify({ ok: true, day, top: topDiario(day, 10) }));
+  });
+}
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -345,6 +409,13 @@ const httpServer = http.createServer((req, res) => {
     return;
   }
   if (p === '/beatscore' && req.method === 'POST') { postBeatScore(req, res); return; }
+  if (p === '/diario' && req.method === 'POST') { postDiario(req, res); return; }
+  if (p === '/diario') {                  // board del día (GET)
+    const day = utcDay();
+    res.writeHead(200, CORS_JSON);
+    res.end(JSON.stringify({ day, top: topDiario(day, 10) }));
+    return;
+  }
   if (p === '/replay' && req.method === 'POST') { postReplay(req, res); return; }
   if (p === '/replay') {                  // GET /replay?id=xxxx → el replay entero
     let id = '';

@@ -52,9 +52,9 @@ try:
         for pg in (A, B):
             pg.wait_for_function("typeof scene !== 'undefined' && scene === 'title'")
 
-        # menú: bajar hasta DUELO EN LÍNEA (índice 1), poner nombre y buscar
+        # menú: ir a DUELO EN LÍNEA por su id (robusto al orden del menú), nombre y buscar
         for pg, nombre in ((A, 'IGOR'), (B, 'ANA')):
-            pg.keyboard.press('ArrowDown')
+            pg.evaluate("menuSel = TITLE_OPTS.findIndex(o => o.id === 'online')")
             pg.keyboard.press('Enter')
             wait_for(pg, "scene === 'nombre'")
             pg.fill('#nameInput', nombre)
@@ -149,7 +149,7 @@ try:
             RA.goto(URL); RB.goto(URL)
             for pg, nombre in ((RA, 'REMA'), (RB, 'REMB')):
                 pg.wait_for_function("typeof scene !== 'undefined' && scene === 'title'")
-                pg.keyboard.press('ArrowDown'); pg.keyboard.press('Enter')
+                pg.evaluate("menuSel = TITLE_OPTS.findIndex(o => o.id === 'online')"); pg.keyboard.press('Enter')
                 wait_for(pg, "scene === 'nombre'")
                 pg.fill('#nameInput', nombre); pg.keyboard.press('Enter')
             wait_for(RA, "scene === 'choose'"); wait_for(RB, "scene === 'choose'")
@@ -388,7 +388,7 @@ try:
             # ---- salas privadas: dos amigos con ?sala= + un intruso en la cola ----
             def entrar_online(pg, nombre):
                 pg.wait_for_function("typeof scene !== 'undefined' && scene === 'title'")
-                pg.keyboard.press('ArrowDown'); pg.keyboard.press('Enter')
+                pg.evaluate("menuSel = TITLE_OPTS.findIndex(o => o.id === 'online')"); pg.keyboard.press('Enter')
                 wait_for(pg, "scene === 'nombre'")
                 pg.fill('#nameInput', nombre); pg.keyboard.press('Enter')
 

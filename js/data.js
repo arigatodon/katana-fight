@@ -112,6 +112,7 @@ const SECRET_CHARS = [
 ];
 
 function allChars() { return CHARS.concat(SECRET_CHARS); }
+function charById(id) { return allChars().find(c => c.id === id) || CHARS[0]; }
 function charUnlocked(c) { return !c.secret || save.unlocked.includes(c.id); }
 
 // ── Personajes creados con el editor (chars.json) ─────────────────────────

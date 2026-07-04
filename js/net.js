@@ -73,6 +73,27 @@ function fetchNetRanking() {
     .catch(() => { netRank = { fase: 'error', rows: [] }; });
 }
 
+// ---------------- Desafío diario (board del servidor) ----------------
+// Envía el puntaje del torneo del día (fire-and-forget); el servidor decide
+// el día en UTC y guarda el mejor por nombre. Si falla, el juego ni se entera.
+function netSubmitDaily(name, score) {
+  if (typeof fetch === 'undefined') return;
+  fetch(netHttpBase() + '/diario', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, score }),
+  }).then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
+    .then(d => { if (d && d.top) diarioRank = { fase: 'ok', rows: d.top, day: d.day }; })
+    .catch(() => {});
+}
+
+function fetchDiario() {
+  diarioRank = { fase: 'cargando', rows: [] };
+  fetch(netHttpBase() + '/diario')
+    .then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
+    .then(d => { diarioRank = { fase: 'ok', rows: d.top || [], day: d.day }; })
+    .catch(() => { diarioRank = { fase: 'error', rows: [] }; });
+}
+
 // ambos clientes simulan la misma pelea, así que ambos envían el mismo
 // resultado; el servidor lo anota en el ranking cuando los dos coinciden
 function netReportResult(winner) {
