@@ -166,18 +166,30 @@ Ranking del día separado en el servidor; a medianoche UTC rota.
   - [x] El título muestra "DESAFÍO DEL DÍA" con cuenta regresiva a la rotación (`fmtCountdown`/`msToUtcMidnight`).
   - [x] `smoke.html` incluye un recorrido del modo diario (`window.__diario`, todo verde).
 
-### 3.2 Los yokai vencidos son jugables en KATANA RŌNIN — esfuerzo M
+### 3.2 Los yokai vencidos son jugables en KATANA RŌNIN — esfuerzo M — ✅ HECHO
 
-Hoy `BM_PLAYABLE` son solo 3 de 13 personajes. Nuevo lazo entre modos: cada jefe secreto que
-desbloqueas en el torneo (`save.unlocked`) se vuelve jugable en el beat 'em up, con su rasgo
-(TANUKI roba postura, UMIBOZU embiste…). De paso, los 8 base también jugables en RŌNIN.
+Nuevo lazo entre modos: los 8 guerreros base + cada yokai secreto que desbloqueas en el torneo
+(`save.unlocked`) son jugables en el beat 'em up, cada uno con su rasgo traducido al beat.
 
+- `BM_PLAYABLE` se reconstruye (`bmRebuildPlayable`) desde `CHARS` + `save.unlocked`, no es fija.
+  La grilla de selección (`bm_render`) muestra los 13 en dos filas (GUERREROS · YOKAI); los yokai
+  aún no vencidos salen como SILUETAS negras (`ctx.filter=brightness(0)`) con "?" y
+  "⚔ VÉNCELO EN EL TORNEO PARA JUGARLO" — llamada cruzada entre modos.
+- Traducción de rasgos (tabla documentada en `bm_core.js`): la mayoría se aplican solos vía
+  makePlayer (alcance/tamaño por scale, salto por jumpMul, cadencia por windup, velocidad). Los que
+  no tenían efecto se enganchan: doubleJump (CAZADORA)→2º salto, parryMul (YAMAUBA)→parada más ancha,
+  slide (UMIBOZU)→embestida larga e invulnerable, steal (TANUKI)→instante invulnerable al matar,
+  bounce (KAPPA)→rebota al aterrizar, afterimage (ESPECTRO)→estelas (cosmético). Aditivos: no
+  crashean contra jefes ni en co-op.
+- Co-op: el snapshot ya reconstruía al compañero por `bmMateCharId`; además ahora el id del
+  personaje viaja en cada snapshot (`bmEncFighter.c`), fuente de verdad para dibujar el yokai del host
+  aunque el invitado no lo tenga desbloqueado.
 - **Criterios de aceptación:**
-  - [ ] `BM_PLAYABLE` se construye desde `CHARS` + `save.unlocked`, no de una lista fija.
-  - [ ] Cada rasgo distintivo tiene traducción funcional en el beat (documentada en `bm_core.js`); ninguno crashea contra jefes ni en co-op.
-  - [ ] En co-op, el invitado ve correctamente al host jugando con un yokai (snapshots incluyen el id del personaje).
-  - [ ] `e2e_coop.py` pasa con un yokai como host.
-  - [ ] La pantalla de selección del beat enseña siluetas bloqueadas con "VÉNCELO EN EL TORNEO" (llamada cruzada entre modos).
+  - [x] `BM_PLAYABLE` se construye desde `CHARS` + `save.unlocked`, no de una lista fija (`bmRebuildPlayable`).
+  - [x] Cada rasgo distintivo tiene traducción funcional en el beat (documentada en `bm_core.js`); ninguno crashea contra jefes ni en co-op.
+  - [x] En co-op, el invitado ve correctamente al host jugando con un yokai (snapshots incluyen el id del personaje).
+  - [x] `e2e_coop.py` pasa con un yokai (TANUKI) como host.
+  - [x] La pantalla de selección del beat enseña siluetas bloqueadas con "VÉNCELO EN EL TORNEO" (verificado con captura).
 
 ### 3.3 Gestas (logros con testigo) — esfuerzo S
 

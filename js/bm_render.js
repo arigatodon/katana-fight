@@ -454,33 +454,71 @@ function bmDrawOnline() {
 
 function bmDrawChoose() {
   bmBackdrop();
-  bmCenterText('ELIGE TU GUERRERO', 30, H * 0.2, '#e8c050');
-  if (bmCoop) bmCenterText('CO-OP · compañero: ' + (bmNetFoe || '???'), 14, H * 0.2 + 26, '#6ab0e8');
-  const spots = [W * 0.28, W * 0.5, W * 0.72];
-  for (let i = 0; i < BM_PLAYABLE.length; i++) {
-    const ch = bmChar(BM_PLAYABLE[i]);
-    const sel = i === bmChooseSel;
-    if (sel) {
-      ctx.fillStyle = 'rgba(232,192,80,0.12)';
-      ctx.fillRect(spots[i] - 70, H * 0.28, 140, H * 0.4);
-      ctx.strokeStyle = '#e8c050'; ctx.lineWidth = 2;
-      ctx.strokeRect(spots[i] - 70, H * 0.28, 140, H * 0.4);
-    }
-    const fake = bmFakeFighter(BM_PLAYABLE[i], spots[i], 1, 1.15);
-    fake.y = H * 0.66; fake.bob = sel ? bmTime * 2 : 0;
-    drawSamurai(fake);
+  bmCenterText('ELIGE TU GUERRERO', 26, 44, '#e8c050');
+  if (bmCoop) bmCenterText('CO-OP · compañero: ' + (bmNetFoe || '???'), 13, 66, '#6ab0e8');
+
+  // dos filas: guerreros comunes arriba, yokai abajo (los bloqueados, siluetas).
+  // El índice global recorre BM_ROSTER (= CHARS.concat(SECRET_CHARS)).
+  const filas = [
+    { list: CHARS, feet: 232, label: '— GUERREROS —', labelY: 96 },
+    { list: SECRET_CHARS, feet: 388, label: '— YOKAI —', labelY: 262 },
+  ];
+  bmChooseCells = [];
+  let gi = 0;
+  for (const fila of filas) {
+    const n = fila.list.length;
+    const cw = Math.min(116, (W - 50) / n);
+    const startX = W / 2 - (n - 1) * cw / 2;
     ctx.textAlign = 'center';
-    ctx.fillStyle = sel ? '#e8c050' : '#c0b8a8';
-    ctx.font = 'bold 16px "Courier New", monospace';
-    ctx.fillText(ch.name, spots[i], H * 0.74);
-    ctx.fillStyle = '#9a9486'; ctx.font = '11px "Courier New", monospace';
-    bmWrap(ch.desc, spots[i], H * 0.78, 22, 18);
-    ctx.textAlign = 'left';
+    ctx.fillStyle = '#7a7466'; ctx.font = '12px "Courier New", monospace';
+    ctx.fillText(fila.label, W / 2, fila.labelY);
+    for (let i = 0; i < n; i++, gi++) {
+      const ch = fila.list[i];
+      const x = startX + i * cw;
+      const sel = gi === bmChooseSel;
+      const locked = !bmCharPlayable(ch.id);
+      bmChooseCells.push({ x, cw, top: fila.feet - 128, h: 150, gi, playable: !locked });
+      if (sel) {
+        ctx.fillStyle = 'rgba(232,192,80,0.12)';
+        ctx.fillRect(x - cw / 2, fila.feet - 128, cw, 150);
+        ctx.strokeStyle = locked ? '#a06a6a' : '#e8c050'; ctx.lineWidth = 2;
+        ctx.strokeRect(x - cw / 2, fila.feet - 128, cw, 150);
+      }
+      const fake = bmFakeFighter(ch.id, x, 1, 0.72);
+      fake.y = fila.feet; fake.bob = sel ? bmTime * 2 : x;
+      if (locked) {
+        // silueta negra ("aún no vencido"): brightness(0) ennegrece cualquier
+        // dibujo (procedural o arte) conservando la forma; opacity lo atenúa
+        ctx.save();
+        ctx.filter = 'brightness(0) opacity(0.8)';
+        drawSamurai(fake);
+        ctx.restore();
+        ctx.fillStyle = sel ? '#e8c050' : '#9a9080';
+        ctx.font = 'bold 30px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('?', x, fila.feet - 54);
+      } else {
+        drawSamurai(fake);
+      }
+    }
   }
-  const txt = bmCoop
-    ? (BM_TOUCH ? 'toca un guerrero para confirmar' : '← →  elegir      F  confirmar')
-    : (BM_TOUCH ? 'toca un guerrero para empezar' : '← →  elegir      F  confirmar');
-  bmCenterText(txt, 16, H * 0.92, '#e8e0d0');
+
+  // ficha del guerrero resaltado + pista cruzada con el torneo
+  const selCh = BM_ROSTER[bmChooseSel];
+  if (selCh) {
+    const locked = !bmCharPlayable(selCh.id);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = locked ? '#d09090' : '#e8c050';
+    ctx.font = 'bold 17px "Courier New", monospace';
+    ctx.fillText(locked ? selCh.name + '  ·  BLOQUEADO' : selCh.name, W / 2, 452);
+    ctx.fillStyle = locked ? '#c8a060' : '#9a9486';
+    ctx.font = '12px "Courier New", monospace';
+    ctx.fillText(locked ? '⚔  VÉNCELO EN EL TORNEO PARA JUGARLO' : selCh.desc, W / 2, 476);
+  }
+
+  const txt = BM_TOUCH ? 'toca un guerrero para elegir' : '← →  elegir      F  confirmar';
+  bmCenterText(txt, 14, 512, '#e8e0d0');
+  ctx.textAlign = 'left';
 }
 
 function bmWrap(txt, x, y, maxChars, lh) {

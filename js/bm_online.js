@@ -86,6 +86,7 @@ function bmNetMsg(m) {
     bmCoop = true;
     bmHost = (m.side === 0);
     bmNet.fase = 'eligiendo';
+    bmRebuildPlayable();     // por si desbloqueaste un yokai
     bmChooseSel = 0;
     bmScene = 'choose';
     sfxConfirm && sfxConfirm();
@@ -179,7 +180,8 @@ function bmNetHostTick(dt) {
 
 function bmEncFighter(p) {
   return {
-    s: p.side, x: Math.round(p.x), y: Math.round(p.y), vx: Math.round(p.vx),
+    s: p.side, c: p.char.id,                 // id del guerrero (para que el invitado dibuje el yokai correcto)
+    x: Math.round(p.x), y: Math.round(p.y), vx: Math.round(p.vx),
     fc: p.facing, st: p.state, tmr: +(p.stateTimer || 0).toFixed(2),
     dt: +(p.deathT || 0).toFixed(2), inv: p.invT > 0 ? 1 : 0,
     thr: p.attackThrust ? 1 : 0, og: p.onGround ? 1 : 0, sl: p.slideT > 0 ? 1 : 0,
@@ -236,9 +238,12 @@ function bmApplySnapshot(s) {
   // jugadores (por lado): el mío es el que coincide con bmNetSide
   for (const ps of s.pl) {
     const local = ps.s === bmNetSide;
+    // el id del guerrero viaja en el snapshot: así el invitado dibuja el yokai
+    // del host aunque él no lo tenga desbloqueado (fuente de verdad autoritativa)
+    const charId = ps.c || (local ? bmPlayerCharId : bmMateCharId);
     let p = local ? bmPlayer : bmMate;
-    if (!p) {
-      p = bmPlayablePlayer(local ? bmPlayerCharId : bmMateCharId, ps.s, ps.x);
+    if (!p || (p.char && p.char.id !== charId)) {
+      p = bmPlayablePlayer(charId, ps.s, ps.x);
       if (local) bmPlayer = p; else bmMate = p;
     }
     bmApplyFighterState(p, ps);

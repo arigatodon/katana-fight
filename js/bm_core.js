@@ -45,6 +45,7 @@ let bmTime = 0;
 let bmBanner = '', bmBannerSub = '', bmBannerT = 0;
 let bmGameOverPending = false;
 let bmChooseSel = 0;
+let bmChooseCells = [];      // celdas de la grilla de selección (las llena el render, las lee el toque)
 let bmFlash = 0;            // destello blanco (muerte / corte)
 let bmBossDown = false;     // jefe abatido: mana sangre y hay que AVANZAR a pie
 let bmFallenBoss = null;    // el jefe caído (origen del chorro de sangre)
@@ -61,14 +62,41 @@ const BM_GRAV = 1700;
 const BM_VIEW_W = 960;     // se reasigna a W al cargar
 
 // ---- personajes ----
-// Jugables: los tres que pidió el diseño (rōnin, viejo maestro, niño).
-const BM_PLAYABLE = ['ronin', 'maestro', 'nino'];
-// Todos los demás guerreros comunes son enemigos.
+// Jugables: TODOS los guerreros comunes + los yokai VENCIDOS en el torneo
+// (save.unlocked). NO es una lista fija: se reconstruye al entrar a la
+// selección (bmRebuildPlayable). Los yokai aún bloqueados salen en la grilla
+// como siluetas con "VÉNCELO EN EL TORNEO" — lazo cruzado entre modos: cada
+// jefe que derribas en el torneo se te suma como guerrero jugable en RŌNIN.
+const BM_ROSTER = CHARS.concat(SECRET_CHARS);   // orden de la grilla de selección
+let BM_PLAYABLE = [];
+function bmCharPlayable(id) {
+  const c = bmChar(id);
+  return !c.secret || (typeof save !== 'undefined' && save.unlocked && save.unlocked.includes(c.id));
+}
+function bmRebuildPlayable() {
+  BM_PLAYABLE = BM_ROSTER.filter(c => bmCharPlayable(c.id)).map(c => c.id);
+}
+// Enemigos comunes de las oleadas (los yokai son jefes).
 const BM_ENEMIES = ['bandido', 'monja', 'gigante', 'cazadora', 'espectro'];
+
+// ---- traducción de rasgos distintivos al beat 'em up ----
+// La mayoría de rasgos ya se aplican SOLOS al crear al jugador con makePlayer/
+// deriveAttrs: alcance y tamaño (scale/reachMul), altura de salto (jumpMul),
+// cadencia del corte (windup), velocidad (agilidad). El daño no importa (un
+// corte mata). Los rasgos que NO tenían efecto para un jugador se traducen así:
+//   · doubleJump (CAZADORA) → segundo salto en el aire            (bmDoJump)
+//   · parryMul   (YAMAUBA)  → ventana de parada más ancha         (bmDoParry)
+//   · slide      (UMIBOZU)  → embestida (dash) más larga e imparable (bmDoSlide)
+//   · steal      (TANUKI)   → cada muerte le da un instante invulnerable (bmCreditKill)
+//   · bounce     (KAPPA)    → rebota una vez al aterrizar          (bmStepPhysics)
+//   · afterimage (ESPECTRO) → estelas visuales (cosmético; decaen en bmStepState)
+// Ninguno crashea contra jefes ni en co-op: los hooks son aditivos y los datos
+// del personaje viajan en el handshake/snapshot del co-op (bm_online).
 
 function bmChar(id) {
   return allChars().find(c => c.id === id) || CHARS[0];
 }
+bmRebuildPlayable();   // jugables iniciales (se recalcula al entrar a la selección)
 
 // jugadores activos: en solo solo el local; en co-op el local y el compañero.
 // Se llama muchas veces por tic (IA, física, oleadas, cámara, render), así que

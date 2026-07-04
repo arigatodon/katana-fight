@@ -61,10 +61,13 @@ function bmDoSlide(p, dir) {
   if (bmScene !== 'play' || !p) return;
   if (p.state !== PSTATE.IDLE || !p.onGround || p.slideT > 0 || p.slideCd > 0 || p.respawnT > 0) return;
   if (dir) p.facing = dir < 0 ? -1 : 1;
-  p.slideT = BM_SLIDE_DUR;
+  // UMIBOZU (tiburon): su embestida deslizante es más larga e invulnerable
+  // durante todo el trayecto (atraviesa la oleada); el resto, esquiva breve
+  const embiste = !!(p.char && p.char.slide);
+  p.slideT = BM_SLIDE_DUR * (embiste ? 1.6 : 1);
   p.slideCd = BM_SLIDE_CD;
-  p.invT = Math.max(p.invT, BM_SLIDE_IFR);
-  p.vx = p.facing * BM_SLIDE_SPEED;
+  p.invT = Math.max(p.invT, embiste ? p.slideT : BM_SLIDE_IFR);
+  p.vx = p.facing * BM_SLIDE_SPEED * (embiste ? 1.15 : 1);
   sfxJump && sfxJump();
   bmSlideDust(p);
 }
@@ -123,7 +126,15 @@ function bmDoJump(p) {
   if (p.onGround && (p.state === PSTATE.IDLE)) {
     p.vy = p.jumpVel * 0.82;
     p.onGround = false;
+    p.jumpsUsed = 1;
     sfxJump && sfxJump();
+  } else if (!p.onGround && p.char.doubleJump && (p.jumpsUsed || 0) < 2 &&
+             (p.state === PSTATE.IDLE || p.state === PSTATE.RECOVER)) {
+    // CAZADORA: segundo salto en el aire (su rasgo del duelo, aquí de movilidad)
+    p.vy = p.jumpVel * 0.72;
+    p.jumpsUsed = 2;
+    sfxJump && sfxJump();
+    bmSlideDust && bmSlideDust(p);
   }
 }
 
@@ -177,7 +188,8 @@ const BM_PARRY_CD = 0.5;     // enfriamiento
 function bmDoParry(p) {
   if (bmScene !== 'play' || !p) return;
   if (p.state !== PSTATE.IDLE || p.parryT > 0 || p.parryCd > 0 || p.respawnT > 0) return;
-  p.parryT = BM_PARRY_DUR;
+  // YAMAUBA (abuela): su parada letal cubre una ventana más ancha (parryMul)
+  p.parryT = BM_PARRY_DUR * (p.char.parryMul || 1);
   p.parryCd = BM_PARRY_CD;
   p.state = PSTATE.GUARD; p.stateTimer = 0.26; p.vx = 0;
   sfxBlock && sfxBlock();
@@ -199,9 +211,9 @@ function bmParrySuccess(pl, e) {
   if (e.isBoss) {
     if (e.hp > 1) e.hp -= 1;
     e.state = PSTATE.HITSTUN; e.stateTimer = 1.0; e.vx = -e.facing * 240;
-    if (e.hp <= 0) { bmKillFighter(e, pl); bmCreditKill(e, 1000); }
+    if (e.hp <= 0) { bmKillFighter(e, pl); bmCreditKill(e, 1000, pl); }
   } else {
-    bmKillFighter(e, pl); bmCreditKill(e, 150);
+    bmKillFighter(e, pl); bmCreditKill(e, 150, pl);
   }
 }
 
@@ -227,18 +239,20 @@ function bmHitEnemy(e, att) {
     return;
   }
   bmKillFighter(e, att);
-  bmCreditKill(e, e.isBoss ? 1000 : 100);
+  bmCreditKill(e, e.isBoss ? 1000 : 100, att);
   floatText(e.x, bodyCenterY(e) - 48, e.isBoss ? '¡JEFE CAÍDO!' : ('+' + Math.round((e.isBoss ? 1000 : 100) * bmMult)), '#ffd040', e.isBoss ? 20 : 15);
 }
 
-// suma puntaje con multiplicador y avanza el combo
-function bmCreditKill(e, base) {
+// suma puntaje con multiplicador y avanza el combo; `att` es quien mató
+function bmCreditKill(e, base, att) {
   bmKills += 1;
   bmCombo += 1;
   bmComboT = 3.2;
   bmComboBest = Math.max(bmComboBest, bmCombo);
   bmMult = 1 + Math.floor(bmCombo / 3) * 0.5;   // cada 3 muertes: +0.5x
   bmScore += Math.round(base * bmMult);
+  // TANUKI (mapache): roba la esencia del caído → un instante invulnerable
+  if (att && att.char && att.char.steal) att.invT = Math.max(att.invT || 0, 0.6);
 }
 
 // muerte de un jugador (golpe enemigo, embestida, onda o contra).

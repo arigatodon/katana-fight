@@ -45,9 +45,17 @@ function bmStepPhysics(p, dt) {
   p.bob += dt * (p.onGround && Math.abs(p.vx) > 30 ? 14 : 6);
 
   p.vy += BM_GRAV * dt;
+  const vyCaida = p.vy;                 // velocidad al tocar suelo (para el rebote)
   p.y += p.vy * dt;
-  if (p.y >= GROUND) { p.y = GROUND; p.vy = 0; p.onGround = true; }
-  else p.onGround = false;
+  if (p.y >= GROUND) {
+    const wasAir = !p.onGround;
+    p.y = GROUND; p.vy = 0; p.onGround = true; p.jumpsUsed = 0;
+    // KAPPA (sapo): rebota una vez al aterrizar de un salto; se amortigua solo
+    // (el brinco es flojo y ya no supera el umbral). Solo jugadores, no jefes.
+    if (wasAir && !p.isBoss && p.char && p.char.bounce && p.state !== PSTATE.DEAD && vyCaida > 340) {
+      p.vy = p.jumpVel * 0.4; p.onGround = false;
+    }
+  } else p.onGround = false;
 
   p.x += p.vx * dt;
 

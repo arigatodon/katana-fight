@@ -59,48 +59,61 @@ try:
         B.wait_for_function("bmScene === 'choose' && bmCoop", timeout=8000)
         print('• emparejados, ambos en elección')
 
-        # cada uno elige un guerrero distinto
-        A.evaluate("bmNetChoose(bmChar(BM_PLAYABLE[0]))")
-        B.evaluate("bmNetChoose(bmChar(BM_PLAYABLE[1]))")
+        # identificar host / invitado (bmHost ya quedó fijado al emparejar)
+        hostA = A.evaluate("bmHost")
+        host, guest = (A, B) if hostA else (B, A)
+        print(f'• host = {"A" if hostA else "B"}')
+
+        # el HOST desbloquea y juega con un YOKAI; el invitado, un común.
+        # Prueba el lazo cruzado 3.2: un yokai vencido en el torneo es jugable en RŌNIN.
+        host.evaluate("save.unlocked = ['mapache']; bmRebuildPlayable()")
+        host.evaluate("bmNetChoose(bmChar('mapache'))")   # TANUKI (yokai)
+        guest.evaluate("bmNetChoose(bmChar('ronin'))")
 
         A.wait_for_function("bmScene === 'play'", timeout=8000)
         B.wait_for_function("bmScene === 'play'", timeout=8000)
         print('• ambos en juego')
 
-        # identificar host / invitado
-        hostA = A.evaluate("bmHost")
-        host, guest = (A, B) if hostA else (B, A)
-        print(f'• host = {"A" if hostA else "B"}')
+        # sonda de control: dentro de la gracia de aparición (sin enemigos aún),
+        # un toque corto a la derecha debe mover a ambos luchadores. Se mide aquí
+        # porque más tarde, con la oleada, el host podría morir y reaparecer.
+        hx0 = host.evaluate("bmPlayer.x")
+        host.keyboard.down('ArrowRight'); guest.keyboard.down('ArrowRight')
+        time.sleep(0.6)
+        hx1 = host.evaluate("bmPlayer.x")          # host visto por sí mismo
+        hmx1 = host.evaluate("bmMate ? bmMate.x : null")   # invitado visto por el host
+        if not (hx1 > hx0 + 8): fail(f'el host no responde a su input ({hx0:.0f}→{hx1:.0f})')
+        if hmx1 is None: fail('el host no tiene compañero (bmMate)')
+        elif not (hmx1 > 179): fail(f'el input del invitado no llega al host (mate en {hmx1:.0f})')
 
-        # avanzar a la derecha para gatillar la primera oleada (host e invitado)
-        host.keyboard.down('ArrowRight')
-        guest.keyboard.down('ArrowRight')
-        time.sleep(2.5)
+        # seguir avanzando para gatillar la primera oleada
+        time.sleep(2.2)
         host.keyboard.up('ArrowRight')
         guest.keyboard.up('ArrowRight')
         time.sleep(0.8)
 
-        # el host debe haber generado enemigos
+        # el host debe haber generado enemigos y el invitado recibirlos por snapshot
         he = host.evaluate("bmEnemies.length")
         ge = guest.evaluate("bmEnemies.length")
         print(f'• enemigos — host={he}  invitado={ge}')
         if he <= 0: fail('el host no generó enemigos al avanzar')
         if ge <= 0: fail('el invitado no recibió enemigos por snapshot')
 
-        # el invitado debe tener compañero (bmMate) y ambos jugadores deben haberse movido
-        hx = host.evaluate("bmPlayer.x")          # luchador del host
+        # el invitado debe tener compañero y verse cerca de donde el host lo simula
         hmx = host.evaluate("bmMate ? bmMate.x : null")   # el invitado, visto por el host
         gx = guest.evaluate("bmPlayer.x")         # el invitado, visto por sí mismo
         gmate = guest.evaluate("bmMate ? bmMate.x : null")
-        print(f'• posiciones — host.player={hx:.0f}  host.mate={hmx}  guest.player={gx:.0f}  guest.mate={gmate}')
-        if hmx is None: fail('el host no tiene compañero (bmMate)')
+        print(f'• posiciones — host.mate={hmx}  guest.player={gx:.0f}  guest.mate={gmate}')
         if gmate is None: fail('el invitado no tiene compañero (bmMate)')
-        if hx is not None and hx <= 135: fail('el host no se movió a la derecha')
-        if hmx is not None and hmx <= 175: fail('el input del invitado no movió a su luchador en el host')
-
-        # el invitado debe ver a su luchador cerca de donde el host lo simula
         if hmx is not None and gx is not None and abs(hmx - gx) > 120:
             fail(f'desync de posición del invitado: host.mate={hmx:.0f} vs guest.player={gx:.0f}')
+
+        # 3.2: el host juega con un YOKAI y el invitado lo ve correctamente
+        host_char = host.evaluate("bmPlayer.char.id")
+        guest_sees = guest.evaluate("bmMate ? bmMate.char.id : null")
+        print(f'• host juega {host_char}  ·  invitado ve al host como {guest_sees}')
+        if host_char != 'mapache': fail('el host no juega con el yokai desbloqueado')
+        if guest_sees != 'mapache': fail('el invitado no ve al host con su yokai (id de personaje en snapshot)')
 
         # desconexión: si cae el invitado, el host vuelve al título con aviso
         guest.close()

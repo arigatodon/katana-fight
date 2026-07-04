@@ -41,7 +41,7 @@ addEventListener('keydown', e => {
   if (bmScene === 'title') {
     if (e.code === 'KeyR') { bmLoadRank(); bmScene = 'ranking'; sfxConfirm && sfxConfirm(); return; }
     if (e.code === 'KeyO') { bmNetStart(); return; }   // co-op en línea
-    if (BM_BIND.attack.includes(e.code) || e.code === 'Space') { bmCoop = false; bmScene = 'choose'; sfxConfirm && sfxConfirm(); }
+    if (BM_BIND.attack.includes(e.code) || e.code === 'Space') { bmCoop = false; bmEnterChoose(); sfxConfirm && sfxConfirm(); }
     return;
   }
   if (bmScene === 'ranking') {
@@ -53,13 +53,12 @@ addEventListener('keydown', e => {
     return;
   }
   if (bmScene === 'choose') {
-    if (bmDownCode(e.code, 'left'))  { bmChooseSel = (bmChooseSel + BM_PLAYABLE.length - 1) % BM_PLAYABLE.length; sfxSelect && sfxSelect(); }
-    if (bmDownCode(e.code, 'right')) { bmChooseSel = (bmChooseSel + 1) % BM_PLAYABLE.length; sfxSelect && sfxSelect(); }
-    if (BM_BIND.attack.includes(e.code)) {
-      sfxConfirm && sfxConfirm();
-      if (bmCoop) bmNetChoose(bmChar(BM_PLAYABLE[bmChooseSel]));   // co-op: avisa al compañero
-      else bmStartGame(BM_PLAYABLE[bmChooseSel]);
-    }
+    const n = BM_ROSTER.length;
+    if (bmDownCode(e.code, 'left'))  { bmChooseSel = (bmChooseSel + n - 1) % n; sfxSelect && sfxSelect(); }
+    if (bmDownCode(e.code, 'right')) { bmChooseSel = (bmChooseSel + 1) % n; sfxSelect && sfxSelect(); }
+    // arriba/abajo: salta a la otra fila (comunes ↔ yokai)
+    if (bmDownCode(e.code, 'jump')) { bmChooseRowToggle(); sfxSelect && sfxSelect(); }
+    if (BM_BIND.attack.includes(e.code)) bmChooseConfirm();
     return;
   }
   if (bmScene === 'gameover' || bmScene === 'win') {
@@ -88,6 +87,30 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { bmKeys[e.code] = false; });
 
 function bmDownCode(code, action) { return BM_BIND[action].includes(code); }
+
+// entra a la selección recalculando los jugables (por si desbloqueaste un yokai)
+function bmEnterChoose() {
+  bmRebuildPlayable();
+  bmChooseSel = 0;
+  bmScene = 'choose';
+}
+
+// confirma el guerrero resaltado; si está bloqueado (yokai no vencido), no arranca
+function bmChooseConfirm() {
+  const ch = BM_ROSTER[bmChooseSel];
+  if (!ch) return;
+  if (!bmCharPlayable(ch.id)) { sfxSelect && sfxSelect(); return; }   // bloqueado: vuelve a intentar
+  sfxConfirm && sfxConfirm();
+  if (bmCoop) bmNetChoose(ch);       // co-op: avisa al compañero
+  else bmStartGame(ch.id);
+}
+
+// salta entre la fila de comunes y la de yokai conservando la columna
+function bmChooseRowToggle() {
+  const nb = CHARS.length;
+  if (bmChooseSel < nb) bmChooseSel = Math.min(BM_ROSTER.length - 1, nb + bmChooseSel);
+  else bmChooseSel = Math.min(nb - 1, bmChooseSel - nb);
+}
 
 // dirección horizontal sostenida (-1, 0, 1) combinando teclado y táctil
 function bmMoveDir() {
@@ -160,14 +183,19 @@ function bmMenuTap(p) {
   if (bmScene === 'title') {
     if (p.y > H * 0.95) { bmLoadRank(); bmScene = 'ranking'; sfxConfirm && sfxConfirm(); return; }  // franja inferior: ranking
     if (bmInRect(p, BM_COOP_BTN)) { bmNetStart(); return; }   // botón de co-op en línea
-    bmCoop = false; bmScene = 'choose'; sfxConfirm && sfxConfirm(); return;
+    bmCoop = false; bmEnterChoose(); sfxConfirm && sfxConfirm(); return;
   }
   if (bmScene === 'online') { bmNetLeave(); bmScene = 'title'; sfxConfirm && sfxConfirm(); return; }
   if (bmScene === 'choose') {
-    const zona = p.x < W / 3 ? 0 : p.x < 2 * W / 3 ? 1 : 2;   // toca un guerrero = elígelo
-    bmChooseSel = zona; sfxConfirm && sfxConfirm();
-    if (bmCoop) bmNetChoose(bmChar(BM_PLAYABLE[zona]));
-    else bmStartGame(BM_PLAYABLE[zona]);
+    // toca una celda de la grilla: la selecciona; si es jugable, la confirma
+    for (const c of bmChooseCells) {
+      if (p.x >= c.x - c.cw / 2 && p.x <= c.x + c.cw / 2 && p.y >= c.top && p.y <= c.top + c.h) {
+        bmChooseSel = c.gi;
+        if (c.playable) bmChooseConfirm();
+        else sfxSelect && sfxSelect();
+        return;
+      }
+    }
     return;
   }
   if (bmScene === 'ranking') { bmScene = 'title'; sfxConfirm && sfxConfirm(); return; }
