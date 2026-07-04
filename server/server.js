@@ -68,6 +68,9 @@ function recordResult(ws, raw) {
   match.reports[ws.side] = {
     winner: m.winner === 1 ? 1 : 0,
     score: Math.max(0, Math.min(MAX_SCORE, Math.floor(+m.score) || 0)),
+    // sellos (ids de gestas) del reportante: cosméticos, sin afectar el
+    // anti-trampa; se guardan solo los del ganador (el cliente los mapea a kanji)
+    sellos: Array.isArray(m.sellos) ? m.sellos.slice(0, 3).map(s => String(s).slice(0, 16)) : [],
   };
   const [r0, r1] = match.reports;
   if (!r0 || !r1 || r0.winner !== r1.winner) return;   // falta el otro, o discrepan
@@ -78,6 +81,7 @@ function recordResult(ws, raw) {
   const w = rankEntry(winName);
   w.pts += pts; w.wins++; w.streak++;
   w.best = Math.max(w.best, w.streak);
+  w.sellos = match.reports[r0.winner].sellos || [];   // sellos del ganador
   const l = rankEntry(loseName);
   l.losses++; l.streak = 0;
   saveRanking();

@@ -214,6 +214,41 @@ function currentTitle() {
   return 'APRENDIZ';
 }
 
+// ---------------- Gestas (logros con testigo) ----------------
+// Logros cosméticos y narrativos: NO tocan stats (regla de la casa: mecánica >
+// adornos). Cada gesta es un DATO con un `test(c)` que se evalúa en UN punto
+// único (fin de duelo/torneo en flow.js, o fin del bonus), nunca con ifs
+// regados. El contexto `c` trae solo lo conocido en ese punto; un test cuyo
+// campo no venga en `c` simplemente da falso, así el mismo evaluador sirve para
+// los dos puntos. `sello` es el kanji que se muestra junto a la firma.
+const GESTAS = [
+  { id: 'honesta',   name: 'HOJA HONESTA',     sello: '正', desc: 'Vence un duelo sin fintar',
+    test: c => c.won && c.stats.feints === 0 },
+  { id: 'intacta',   name: 'PIEL INTACTA',     sello: '無', desc: 'Vence un duelo sin recibir daño',
+    test: c => c.won && c.stats.taken === 0 },
+  { id: 'espejo',    name: 'ESPEJO DE ACERO',  sello: '受', desc: 'Desvía 3 golpes con parada perfecta en un duelo',
+    test: c => c.won && c.stats.parries >= 3 },
+  { id: 'iai',       name: 'DESENVAINE FATAL',  sello: '抜', desc: 'Conecta un corte iai desde la vaina',
+    test: c => c.won && (c.stats.iaiHits || 0) >= 1 },
+  { id: 'cenizas',   name: 'DESDE LAS CENIZAS', sello: '焔', desc: 'Gana un duelo tras estar al borde de perder',
+    test: c => c.won && c.foeAtMatchPoint },
+  { id: 'verdugo',   name: 'VERDUGO',           sello: '刑', desc: 'Vence rompiendo la postura del rival',
+    test: c => c.won && c.execution },
+  { id: 'carmesi',   name: 'FILO CARMESÍ',      sello: '血', desc: 'Vence bajo el cielo de SANGRE',
+    test: c => c.won && c.destino === 'sangre' },
+  { id: 'piedad',    name: 'SIN PIEDAD',        sello: '零', desc: 'Gana un duelo sin ceder una ronda',
+    test: c => c.won && c.foeWins === 0 },
+  { id: 'campeon',   name: 'SEÑOR DEL DOJO',    sello: '覇', desc: 'Corona el torneo arcade',
+    test: c => c.champion },
+  { id: 'nino',      name: 'GRAN ESPÍRITU',     sello: '童', desc: 'Corona el torneo con el Niño Prodigio',
+    test: c => c.champion && c.charId === 'nino' },
+  { id: 'impecable', name: 'SENDA IMPECABLE',   sello: '道', desc: 'Corona el torneo sin perder una ronda',
+    test: c => c.champion && c.roundsLost === 0 },
+  { id: 'cosecha',   name: 'COSECHA PERFECTA',  sello: '穫', desc: 'Corta las 12 manzanas del mono',
+    test: c => c.bonusPerfect },
+];
+function gestaById(id) { return GESTAS.find(g => g.id === id); }
+
 // estado inicial seguro antes del primer combate
 stage = STAGES[0];
 destino = DESTINOS[0];

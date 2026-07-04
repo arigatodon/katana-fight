@@ -78,6 +78,10 @@ const RANK_TABS = [
 let rankTab = 0;
 let rankTabX = i => W / 2 + (i - (RANK_TABS.length - 1) / 2) * 168;
 
+// selección de gestas (escena 'gestas'): el jugador elige hasta 3 sellos
+let gestaSel = 0;
+let gestaCells = [];       // celdas para el toque (las llena drawGestas)
+
 // duelos grabados recientes (replays del servidor), los mejores primero
 let netReplays = null;         // { fase, rows }
 let duelSel = 0;
@@ -445,6 +449,7 @@ function handleMenus() {
     } else if (scene === 'ranking') {
       if (code === 'KeyA' || code === 'ArrowLeft')  { setRankTab(rankTab - 1); sfxSelect(); }
       if (code === 'KeyD' || code === 'ArrowRight') { setRankTab(rankTab + 1); sfxSelect(); }
+      if (code === 'KeyG') { gestaSel = 0; scene = 'gestas'; sfxConfirm(); continue; }   // ver/elegir gestas
       const enDuelos = RANK_TABS[rankTab].id === 'duelos' && netReplays && netReplays.rows.length;
       if (enDuelos) {          // pestaña DUELOS: elegir un replay y verlo
         const n = netReplays.rows.length;
@@ -453,6 +458,14 @@ function handleMenus() {
         if (code === 'Enter' || code === 'Space') { sfxConfirm(); location.href = replayLink(netReplays.rows[duelSel].id); }
         if (code === 'Escape') { sfxConfirm(); scene = 'title'; }
       } else if (code === 'Enter' || code === 'Space' || code === 'Escape') { sfxConfirm(); scene = 'title'; }
+    } else if (scene === 'gestas') {
+      const n = GESTAS.length, rowsN = Math.ceil(n / 2);
+      if (code === 'KeyW' || code === 'ArrowUp')    { gestaSel = (gestaSel + n - 1) % n; sfxSelect(); }
+      if (code === 'KeyS' || code === 'ArrowDown')  { gestaSel = (gestaSel + 1) % n; sfxSelect(); }
+      if (code === 'KeyA' || code === 'ArrowLeft')  { gestaSel = (gestaSel + n - rowsN) % n; sfxSelect(); }
+      if (code === 'KeyD' || code === 'ArrowRight') { gestaSel = (gestaSel + rowsN) % n; sfxSelect(); }
+      if (code === 'Enter' || code === 'Space') gestaToggle();
+      if (code === 'Escape') { sfxConfirm(); scene = 'ranking'; }
     }
   }
   for (const tp of tapQueue) {
@@ -579,6 +592,7 @@ function handleMenus() {
       if (Math.abs(tp.x - W / 2) < 110 && Math.abs(tp.y - H * 0.74) < 26) { sfxConfirm(); submitScore(); }
     } else if (scene === 'ranking') {
       let hit = false;
+      if (tp.y < 66 && tp.x < 160) { gestaSel = 0; scene = 'gestas'; sfxConfirm(); continue; }   // 功 arriba-izq: gestas
       for (let i = 0; i < RANK_TABS.length; i++) {
         if (Math.abs(tp.x - rankTabX(i)) < 92 && Math.abs(tp.y - 96) < 22) {
           setRankTab(i); sfxSelect(); hit = true;
@@ -595,6 +609,14 @@ function handleMenus() {
         }
       }
       if (!hit) { sfxConfirm(); scene = 'title'; }
+    } else if (scene === 'gestas') {
+      let hit = false;
+      for (const c of gestaCells) {
+        if (tp.x >= c.x && tp.x <= c.x + c.w && tp.y >= c.y && tp.y <= c.y + c.h) {
+          gestaSel = c.i; gestaToggle(); hit = true; break;
+        }
+      }
+      if (!hit && tp.y > H - 40) { sfxConfirm(); scene = 'ranking'; }
     }
   }
 }
@@ -1132,11 +1154,29 @@ function drawMatchEnd(t) {
     }
   }
 
+  drawGestaAvisos(t);
+
   if (netResult || netActive()) {
     drawNetMatchEndOpts(t);
   } else if (Math.sin(t * 4) > -0.3) {
     drawCenterText(TOUCH ? 'toca para continuar' : 'ENTER para continuar', 15, H * 0.82, '#c0b8a8', 'transparent');
   }
+}
+
+// aviso discreto de gestas recién desbloqueadas (fin de ronda/torneo, nunca
+// durante el combate). Se muestran hasta 3, con su sello y nombre.
+function drawGestaAvisos(t) {
+  if (!gestasNuevas || !gestasNuevas.length) return;
+  const pulse = 0.6 + Math.sin(t * 3) * 0.4;
+  ctx.save();
+  ctx.globalAlpha = pulse;
+  drawCenterText('✦ NUEVA GESTA ✦', 13, H * 0.68, '#e8c050', 'transparent');
+  ctx.globalAlpha = 1;
+  const list = gestasNuevas.slice(0, 3);
+  for (let i = 0; i < list.length; i++) {
+    drawCenterText(list[i].sello + '  ' + list[i].name, 15, H * 0.72 + i * 22, '#d8c8a0', 'transparent');
+  }
+  ctx.restore();
 }
 
 // opciones del final de un duelo online: revancha o salir
@@ -1251,8 +1291,77 @@ function drawRanking(t) {
   ctx.textAlign = 'left';
   drawCenterText(`reputación — honor ${save.rep.honor} · astucia ${save.rep.astucia} · ferocidad ${save.rep.ferocidad} · disciplina ${save.rep.disciplina}`, 13, H - 50, '#998', 'transparent');
   if (Math.sin(t * 4) > -0.3) {
-    drawCenterText(TOUCH ? 'desliza las pestañas con un toque · toca abajo para volver' : 'A/D cambiar pestaña · ENTER para volver', 14, H - 22, '#c0b8a8', 'transparent');
+    drawCenterText(TOUCH ? 'desliza las pestañas · toca 功 arriba: gestas · toca abajo: volver' : 'A/D cambiar pestaña · G gestas · ENTER volver', 14, H - 22, '#c0b8a8', 'transparent');
   }
+}
+
+// ---------------- Escena de gestas (logros + elegir sellos) ----------------
+function gestaToggle() {
+  const g = GESTAS[gestaSel];
+  if (!g || !save.gestas.includes(g.id)) { sfxSelect(); return; }   // aún bloqueada
+  const i = save.sellos.indexOf(g.id);
+  if (i >= 0) save.sellos.splice(i, 1);                 // quitar sello
+  else { if (save.sellos.length >= 3) save.sellos.shift(); save.sellos.push(g.id); }  // máx 3
+  persist();
+  sfxConfirm();
+}
+
+function drawGestas(t) {
+  drawBackground();
+  ctx.fillStyle = 'rgba(0,0,0,0.84)';
+  ctx.fillRect(0, 0, W, H);
+  drawCenterText('功 — GESTAS', 28, 50, '#e8c050');
+  drawCenterText(`${save.gestas.length}/${GESTAS.length} logradas · elige hasta 3 sellos para tu firma (${save.sellos.length}/3)`,
+    13, 78, '#c0b8a8', 'transparent');
+
+  gestaCells = [];
+  const cols = 2, rowsN = Math.ceil(GESTAS.length / cols);
+  const cellW = 420, cellH = 52, gapX = 20;
+  const x0 = W / 2 - cellW - gapX / 2;   // izquierda del primer cuadro
+  const y0 = 110;
+  for (let i = 0; i < GESTAS.length; i++) {
+    const g = GESTAS[i];
+    const col = i < rowsN ? 0 : 1;       // relleno por columnas (mitad y mitad)
+    const row = i % rowsN;
+    const x = (col === 0 ? x0 : W / 2 + gapX / 2);
+    const y = y0 + row * (cellH + 6);
+    const unlocked = save.gestas.includes(g.id);
+    const chosen = save.sellos.includes(g.id);
+    const sel = i === gestaSel;
+    gestaCells.push({ x, y, w: cellW, h: cellH, i });
+    // fondo del cuadro
+    ctx.fillStyle = sel ? 'rgba(232,192,80,0.14)' : 'rgba(255,255,255,0.03)';
+    ctx.fillRect(x, y, cellW, cellH);
+    if (chosen) { ctx.strokeStyle = '#e8c050'; ctx.lineWidth = 2; ctx.strokeRect(x, y, cellW, cellH); }
+    else if (sel) { ctx.strokeStyle = '#8a8478'; ctx.lineWidth = 1; ctx.strokeRect(x, y, cellW, cellH); }
+    // sello (kanji)
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 26px "Courier New", monospace';
+    ctx.fillStyle = unlocked ? '#e8c050' : '#4a463e';
+    ctx.fillText(unlocked ? g.sello : '?', x + 30, y + 35);
+    // nombre + descripción
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.fillStyle = unlocked ? (chosen ? '#e8c050' : '#d8d0c0') : '#6a655c';
+    ctx.fillText(unlocked ? g.name : '???', x + 56, y + 22);
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillStyle = unlocked ? '#9a9486' : '#5a564e';
+    ctx.fillText(g.desc, x + 56, y + 40);
+    if (chosen) { ctx.textAlign = 'right'; ctx.fillStyle = '#e8c050'; ctx.font = '12px "Courier New", monospace'; ctx.fillText('★ sello', x + cellW - 10, y + 22); }
+    ctx.textAlign = 'left';
+  }
+  ctx.textAlign = 'center';
+  if (Math.sin(t * 4) > -0.3) {
+    drawCenterText(TOUCH ? 'toca una gesta lograda para lucirla · toca abajo para volver'
+                         : 'W/S/A/D mover · ENTER lucir/quitar sello · ESC volver', 13, H - 24, '#c0b8a8', 'transparent');
+  }
+  ctx.textAlign = 'left';
+}
+
+// sellos (kanji de gestas) a mostrar junto a una firma/nombre del ranking
+function sellosStr(ids) {
+  if (!ids || !ids.length) return '';
+  return ids.map(id => { const g = gestaById(id); return g ? g.sello : ''; }).join('');
 }
 
 function drawRankRowsLocal(tabla) {
@@ -1270,7 +1379,8 @@ function drawRankRowsLocal(tabla) {
     const top = i === 0;
     ctx.font = (top ? 'bold 15px' : '13px') + ' "Courier New", monospace';
     ctx.fillStyle = top ? '#e8c050' : i < 3 ? '#d8c8a0' : '#b0a890';
-    const row = `${String(i + 1).padStart(2)}  ${r.firma.padEnd(5)} ${String(r.score).padStart(8)}  ${String(r.racha).padStart(4)}   ${(r.fecha || '').padEnd(10)}  ${r.titulo || ''}`;
+    const sel = sellosStr(r.sellos);
+    const row = `${String(i + 1).padStart(2)}  ${r.firma.padEnd(5)} ${String(r.score).padStart(8)}  ${String(r.racha).padStart(4)}   ${(r.fecha || '').padEnd(10)}  ${r.titulo || ''}${sel ? '  ' + sel : ''}`;
     ctx.fillText(row, W / 2, y);
   }
 }
@@ -1364,7 +1474,8 @@ function drawRankRowsOnline(t) {
     const isMe = r.name === save.onlineName;
     ctx.font = (top ? 'bold 15px' : '13px') + ' "Courier New", monospace';
     ctx.fillStyle = isMe ? '#9ad0e8' : top ? '#e8c050' : i < 3 ? '#d8c8a0' : '#b0a890';
+    const sel = sellosStr(r.sellos);
     const row = `${String(i + 1).padStart(2)}   ${r.name.padEnd(12)} ${String(r.pts).padStart(8)} ${String(r.wins).padStart(4)} ${String(r.losses).padStart(4)}   ${String(r.best).padStart(5)}`;
-    ctx.fillText(row + (isMe ? '  ◂ tú' : ''), W / 2, y);
+    ctx.fillText(row + (sel ? '  ' + sel : '') + (isMe ? '  ◂ tú' : ''), W / 2, y);
   }
 }

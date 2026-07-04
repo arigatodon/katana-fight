@@ -68,6 +68,9 @@ function finishBonus(b) {
   b.result = { perfect, pts, cut: b.cut };
   if (run) run.score += pts;
   if (perfect) { flashTimer = 0.5; shake = 8; sfxConfirm(); }
+  // gestas: punto único de evaluación del bonus (COSECHA PERFECTA)
+  gestasNuevas = [];
+  evaluarGestas({ bonusPerfect: perfect });
 }
 
 function updateBonus(dt) {
@@ -204,6 +207,7 @@ function drawBonus(t) {
       drawCenterText(`${r.cut} / ${BONUS_TOTAL} cortadas`, 36, H * 0.38, '#e8e0d0');
     }
     drawCenterText('+' + r.pts + ' puntos', 24, H * 0.52, '#9ad04a', 'transparent');
+    if (typeof drawGestaAvisos === 'function') drawGestaAvisos(t);   // COSECHA PERFECTA
   } else {
     ctx.font = 'bold 22px "Courier New", monospace';
     ctx.fillStyle = '#ffd24a';

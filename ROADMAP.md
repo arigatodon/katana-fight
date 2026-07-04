@@ -4,9 +4,10 @@
 > beat 'em up KATANA RŌNIN con co-op, ranking global, clima real, táctil básico, desplegado en
 > katana.igorv.org e itch.io. Donaciones por enlace (Buda / Mercado Pago).
 >
-> **FASE 1 y FASE 2 COMPLETAS** (jul 2026): colisión de cuerpos, revancha, salas privadas, replays
-> compartibles, espectadores en vivo, kamae (posturas) + iaijutsu (desenvaine) con protocolo v2 —
-> todo verificado con `smoke.html` + `e2e_online.py`. Lo siguiente: FASE 3 (razones para volver).
+> **FASES 1, 2 y 3 COMPLETAS** (jul 2026): revancha, salas, replays, espectadores; kamae + iaijutsu
+> con protocolo v2; desafío diario, yokai jugables en RŌNIN y gestas (logros con sellos) —
+> verificado con `smoke.html` + `e2e_online.py` + `e2e_coop.py`. **Aún sin desplegar (prod=v1).**
+> Lo siguiente: FASE 4 (monetización: pase de mecenas + muro del dojo) o FASE 5 (PWA, telemetría).
 
 ## La tesis del ×10
 
@@ -191,18 +192,27 @@ Nuevo lazo entre modos: los 8 guerreros base + cada yokai secreto que desbloquea
   - [x] `e2e_coop.py` pasa con un yokai (TANUKI) como host.
   - [x] La pantalla de selección del beat enseña siluetas bloqueadas con "VÉNCELO EN EL TORNEO" (verificado con captura).
 
-### 3.3 Gestas (logros con testigo) — esfuerzo S
+### 3.3 Gestas (logros con testigo) — esfuerzo S — ✅ HECHO
 
-10–15 logros con sabor ("Vencer sin usar finta", "Parry a un iai", "Campeón con el NIÑO",
-"Cortar las 12 manzanas del mono"). Se guardan en el save y se enseñan como sellos en la firma
-del ranking — el logro es cosmético y narrativo, sin tocar stats (coherente con la regla de
-mecánica > adornos: no dan ventajas, dan identidad).
+12 logros con sabor (HOJA HONESTA, PIEL INTACTA, DESENVAINE FATAL, FILO CARMESÍ, SEÑOR DEL DOJO,
+GRAN ESPÍRITU, SENDA IMPECABLE, COSECHA PERFECTA…). Se guardan en el save y se lucen como sellos
+(kanji) junto a la firma del ranking — cosméticos y narrativos, sin tocar stats.
 
+- Las gestas son DATOS en `data.js` (`GESTAS`: id, name, sello, desc, `test(c)`). Se evalúan en DOS
+  puntos únicos: `finishMatch` (fin de duelo/torneo, con contexto completo) y `finishBonus` (bonus),
+  con un solo `evaluarGestas(c)` que recorre todas — un test cuyo campo no venga en `c` da falso, así
+  el mismo evaluador sirve para ambos puntos. Nada de ifs regados. Tracking mínimo: `stats.iaiHits`
+  (combat.js), `ultimaEjecucion` (combat.js), `run.roundsLost` (flow.js).
+- Aviso discreto al final de la ronda/torneo (`drawGestaAvisos` en matchEnd y en el bonus), nunca
+  durante el combate.
+- Nueva escena `gestas` (tecla G desde RÉCORDS): elige hasta 3 sellos (`save.sellos`, tope respetado).
+  Los sellos aparecen junto a la firma en el ranking local y en el online (el ganador los envía con el
+  resultado; el servidor los guarda en su entrada, cosmético, sin tocar el anti-trampa).
 - **Criterios de aceptación:**
-  - [ ] Las gestas se definen como datos en `data.js` (condición evaluada en puntos únicos de `flow.js`/`combat.js`, no ifs regados).
-  - [ ] Desbloquear una gesta muestra un aviso discreto al final de la ronda, nunca durante el combate.
-  - [ ] Los sellos aparecen junto a la firma en el ranking local y en el online (máx. 3 elegidos por el jugador).
-  - [ ] El save viejo migra sin romperse (jugadores existentes no pierden nada).
+  - [x] Las gestas se definen como datos en `data.js` (condición `test(c)` evaluada en puntos únicos de `flow.js`, no ifs regados).
+  - [x] Desbloquear una gesta muestra un aviso discreto al final de la ronda, nunca durante el combate.
+  - [x] Los sellos aparecen junto a la firma en el ranking local y en el online (máx. 3 elegidos por el jugador; verificado con captura y `smoke.html`).
+  - [x] El save viejo migra sin romperse (`s.gestas`/`s.sellos` con default en `loadSave`).
 
 ---
 
@@ -297,8 +307,8 @@ reporte host/invitado como en el duelo.
 ```
 HECHO      Fase 0 (colisión), FASE 1 entera (revancha, salas, replays, espectadores)
 HECHO      FASE 2 entera: 2.1 kamae + protocolo v2 (L) → 2.2 iaijutsu (S)
-HECHO      FASE 3.1: desafío diario (torneo del día + board /diario + tab RÉCORDS)
-AHORA      FASE 3: 3.2 yokai en RŌNIN (M) → 3.3 gestas (S)
+HECHO      FASE 3 entera: 3.1 diario · 3.2 yokai en RŌNIN · 3.3 gestas
+AHORA      FASE 4 (mecenas + Stripe, muro) o FASE 5 (PWA, telemetría) — ambas independientes
 FASE 4     4.1 mecenas + Stripe (L) → 4.2 muro del dojo (S)
 FASE 5     5.1 PWA (S) y 5.3 telemetría (S) pueden ir EN CUALQUIER MOMENTO (cuanto antes mejor);
            5.2 táctil kenjutsu tras 2.1; 5.4 anti-trampa beat cuando haya un hueco

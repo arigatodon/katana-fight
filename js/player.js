@@ -27,7 +27,7 @@ function makePlayer(x, facing, char, isCPU, name, virtud, statBoost) {
     statBoost: statBoost || 0,
     instintoUsed: false,
     // estadísticas del combate (reputación / puntaje)
-    stats: { feints: 0, blocks: 0, parries: 0, hits: 0, taken: 0, perfects: 0 },
+    stats: { feints: 0, blocks: 0, parries: 0, hits: 0, taken: 0, perfects: 0, iaiHits: 0 },
     // IA
     aiTimer: 0, aiAction: 'approach', aiReact: 0,
     bob: Math.random() * 10,

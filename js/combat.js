@@ -138,6 +138,7 @@ function applyDamage(def, att, dmgRaw) {
   // iai conectado: el desenvaine muele la postura mucho más de lo normal
   if (att.iai) {
     def.postura = Math.max(0, def.postura - dmg * 0.6);
+    att.stats.iaiHits = (att.stats.iaiHits || 0) + 1;   // para la gesta DESENVAINE FATAL
     floatText(def.x, bodyCenterY(def) - 58, '¡IAI!', '#fff0a0', 17);
     att.iai = false;
   }
@@ -176,6 +177,7 @@ function checkPostureBreak(p) {
 
 function kill(victim, killer, ejecucion) {
   if (victim.state === PSTATE.DEAD) return;
+  ultimaEjecucion = !!ejecucion;   // gesta VERDUGO: el duelo se ganó rompiendo la postura
   victim.state = PSTATE.DEAD;
   victim.stateTimer = 0;
   victim.vida = 0;

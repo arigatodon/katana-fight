@@ -101,7 +101,9 @@ function netReportResult(winner) {
   const side = winner === p1 ? 0 : 1;
   const score = computeNetScore(winner, winner === p1 ? p2 : p1);
   netResult = { side, score, mine: side === net.side };
-  netSend({ t: 'result', winner: side, score });
+  // envía también los sellos (gestas) del jugador local: el servidor guardará
+  // los del ganador en su entrada del ranking (cosmético, sin afectar el anti-trampa)
+  netSend({ t: 'result', winner: side, score, sellos: (save.sellos || []).slice(0, 3) });
 }
 
 // ---------------- Salas privadas ----------------

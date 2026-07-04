@@ -58,11 +58,11 @@ function startRun(final, daily) {
     const dia = utcDayStr();
     dailyPlan = buildDailyPlan(dateSeed(dia));
     dailyEntrenamiento = save.dailyDone === dia;   // ya jugó hoy: no puntúa
-    run = { fight: 0, score: 0, boss: charById(dailyPlan.fights[RUN_FIGHTS - 1].rivalId) };
+    run = { fight: 0, score: 0, roundsLost: 0, boss: charById(dailyPlan.fights[RUN_FIGHTS - 1].rivalId) };
   } else {
     dailyPlan = null;
     fetchWeather();              // el clima real influye en los destinos (solo local)
-    run = { fight: 0, score: 0, boss: pickBoss() };
+    run = { fight: 0, score: 0, roundsLost: 0, boss: pickBoss() };
   }
   runOver = null;
   runUnlocked = null;
@@ -237,6 +237,7 @@ function resetRound() {
     p.feintHoldT = 0;
     p.afterimages = [];
   }
+  ultimaEjecucion = false;    // se marca en el kill de esta ronda (gesta VERDUGO)
   particles = []; slashTrails = []; floaters = []; projectiles = [];
   cracks = []; bellTimer = 3 + rnd() * 4;
   if (stage.id === 'volcan') spawnCracks();
@@ -334,6 +335,7 @@ function applyReputation(p) {
 
 function finishMatch() {
   scene = 'matchEnd';
+  gestasNuevas = [];        // avisos de gestas: se recalculan por duelo
   const winner = matchWinner;
   if (netActive()) {       // online: el resultado va al ranking del servidor
     netReportResult(winner);
@@ -346,6 +348,7 @@ function finishMatch() {
     pendingScore = null;
     return;
   }
+  run.roundsLost = (run.roundsLost || 0) + p2.wins;   // rondas cedidas en el torneo (gesta SENDA IMPECABLE)
   if (winner === p1) {
     save.totalWins++;
     save.streak++;
@@ -359,11 +362,42 @@ function finishMatch() {
         runUnlocked = run.boss;
       }
     }
+    // gestas: PUNTO ÚNICO de evaluación al terminar un duelo/torneo (no online,
+    // no 2P: se ganan en el modo arcade y luego se lucen)
+    evaluarGestas({
+      won: true, stats: p1.stats, foeWins: p2.wins,
+      foeAtMatchPoint: p2.wins === WIN_ROUNDS - 1,
+      execution: ultimaEjecucion, destino: destino.id,
+      champion: runOver === 'champion', charId: playerChar.id,
+      roundsLost: run.roundsLost,
+    });
   } else {
     save.streak = 0;
     runOver = 'defeat';
   }
   persist();
+}
+
+// ---------------- Gestas (logros con testigo) ----------------
+// Desbloquea una gesta: la guarda en el save y encola su aviso discreto.
+function otorgarGesta(id) {
+  if (save.gestas.includes(id)) return false;
+  save.gestas.push(id);
+  const g = gestaById(id);
+  if (g) gestasNuevas.push(g);
+  return true;
+}
+// Evalúa TODAS las gestas contra el contexto `c` en un punto único; un test
+// cuyo campo no venga en `c` simplemente da falso. No toca stats ni ranking.
+function evaluarGestas(c) {
+  let n = 0;
+  for (const g of GESTAS) {
+    if (save.gestas.includes(g.id)) continue;
+    let pass = false;
+    try { pass = !!g.test(c); } catch (e) { pass = false; }
+    if (pass && otorgarGesta(g.id)) n++;
+  }
+  if (n) persist();
 }
 
 // al salir de matchEnd: seguir el torneo o cerrar la partida
@@ -440,6 +474,7 @@ function submitScore() {
     fecha: new Date().toLocaleDateString('es'),
     racha: pendingScore.racha,
     titulo: pendingScore.titulo,
+    sellos: save.sellos.slice(0, 3),   // gestas lucidas junto a la firma
   });
   tabla.sort((a, b) => b.score - a.score);
   save.rankings[pendingScore.cat] = tabla.slice(0, 10);

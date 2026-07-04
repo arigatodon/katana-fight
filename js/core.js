@@ -86,6 +86,8 @@ function loadSave() {
       s.keymap = s.keymap || {};
       for (const pl of ['p1', 'p2']) s.keymap[pl] = Object.assign({}, KEYMAP_DEFAULT[pl], s.keymap[pl]);
       s.musica = s.musica !== false;   // música de combate (por defecto activada)
+      s.gestas = s.gestas || [];       // logros desbloqueados (ids)
+      s.sellos = s.sellos || [];       // hasta 3 gestas elegidas para lucir en la firma
       return s;
     }
   } catch (e) {}
@@ -101,6 +103,8 @@ function loadSave() {
     onlineName: '',         // nombre para el duelo en línea
     keymap: defaultKeymap(),
     musica: true,           // música de fondo en combate
+    gestas: [],             // gestas (logros) desbloqueadas
+    sellos: [],             // hasta 3 gestas elegidas para lucir junto a la firma
   };
 }
 let save = loadSave();
@@ -182,6 +186,11 @@ let dailyRun = false;           // ¿el torneo actual es el desafío del día?
 let dailyPlan = null;           // { seed, virtudOpts, fights:[{rivalId,stageId,destinoId,p2virtudId,bets}] }
 let dailyEntrenamiento = false; // ya jugó hoy: puntúa como ENTRENAMIENTO (no cuenta)
 let diarioRank = null;          // tabla del día que sirve el servidor (GET /diario)
+
+// gestas (logros): avisos recién desbloqueados a mostrar al final de la
+// ronda/torneo, y marca de si el último corte mortal fue una ejecución
+let gestasNuevas = [];          // gestas desbloqueadas en este duelo (se muestran discretas)
+let ultimaEjecucion = false;    // el último kill fue por rotura de postura (verdugo)
 let playerChar = null, rivalChar = null;
 
 // selección de personaje

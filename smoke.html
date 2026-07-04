@@ -130,6 +130,29 @@
     dailyRun = false; dailyPlan = null;   // no contaminar el resto
   } catch (e) { window.__errors.push('diario: ' + e.message); }
 
+  // ---- gestas (3.3): evaluación en punto único + elegir sellos (máx 3) ----
+  try {
+    save.gestas = []; save.sellos = []; gestasNuevas = [];
+    // un contexto que dispara varias gestas de duelo y de torneo
+    evaluarGestas({ won: true, stats: { feints: 0, taken: 0, parries: 3, iaiHits: 1 },
+                    foeWins: 0, foeAtMatchPoint: false, execution: true, destino: 'sangre',
+                    champion: true, charId: 'nino', roundsLost: 0 });
+    const desbloq = save.gestas.slice();
+    // elegir 4 sellos: el 4º debe expulsar al 1º (tope 3)
+    for (const id of ['honesta', 'intacta', 'campeon', 'carmesi']) {
+      gestaSel = GESTAS.findIndex(g => g.id === id); gestaToggle();
+    }
+    // volver a tocar 'carmesi' lo quita
+    window.__gestas = {
+      total: GESTAS.length,
+      desbloqueadas: desbloq.length,
+      nino: desbloq.includes('nino'), campeon: desbloq.includes('campeon'),
+      noCenizas: !desbloq.includes('cenizas'), noCosecha: !desbloq.includes('cosecha'),
+      sellos: save.sellos.slice(), tope3: save.sellos.length <= 3,
+      selloStr: sellosStr(save.sellos), avisos: gestasNuevas.length,
+    };
+  } catch (e) { window.__errors.push('gestas: ' + e.message); }
+
   const pre = document.createElement('pre');
   pre.id = 'result';
   pre.textContent = JSON.stringify({
@@ -144,6 +167,7 @@
     dosJugadores: window.__2p,
     determinismo: window.__det,
     diario: window.__diario,
+    gestas: window.__gestas,
     errores: window.__errors,
   }, null, 1);
   document.body.appendChild(pre);

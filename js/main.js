@@ -26,6 +26,7 @@ function draw(t) {
     case 'comentario': drawComentario(t); break;
     case 'firma':   drawFirma(t); break;
     case 'ranking': drawRanking(t); break;
+    case 'gestas':  drawGestas(t); break;
     case 'fight':
     case 'roundEnd':
       drawFight(t);
