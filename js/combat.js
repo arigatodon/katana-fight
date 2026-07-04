@@ -32,9 +32,28 @@ function startAttack(p) {
   p.atkKamae = p.kamae;
   const K = KAMAE[p.atkKamae];
   const fav = p.kamaeFav === p.atkKamae;
+  // iaijutsu: el PRIMER corte de la ronda sale de la vaina — un desenvaine
+  // más veloz que muele la postura, pero si falla (al aire o lo detienen)
+  // quedas EXPOSED un instante. Cualquier acción de espada (atacar/guardar)
+  // desenvaina; solo el primer corte con la hoja aún guardada es iai.
+  p.iai = !!p.sheathed;
+  p.sheathed = false;
   p.state = PSTATE.WINDUP;
-  p.stateTimer = p.windup * K.windupMul * (fav ? 0.88 : 1);
+  p.stateTimer = p.windup * K.windupMul * (fav ? 0.88 : 1) * (p.iai ? 0.6 : 1);
   p.atkDmg = p.dmg * K.dmgMul * (fav ? 1.12 : 1);
+}
+
+// iai fallido: el desenvaine al aire o cortado en seco deja al samurái
+// vendido (EXPOSED) — la ejecución automática castiga el nervio perdido
+function failIai(p) {
+  p.iai = false;
+  p.state = PSTATE.EXPOSED;
+  p.stateTimer = 0.5;
+  p.vx = -p.facing * 140;
+  sfxBreak();
+  shake = 8;
+  floatText(p.x, bodyCenterY(p) - 52, '¡IAI FALLIDO!', '#ff9040', 18);
+  spawnSparks(p.x, bodyCenterY(p));
 }
 
 function startFeint(p) {
@@ -54,6 +73,7 @@ function startFeint(p) {
 
 function startGuard(p) {
   if (!canAct(p)) return;
+  p.sheathed = false;   // desenvainas para bloquear: pierdes el iai (no es corte)
   p.state = PSTATE.GUARD;
   p.guardT = 0;
 }
@@ -115,6 +135,12 @@ function applyDamage(def, att, dmgRaw) {
   }
   def.vida -= dmg;
   def.postura = Math.max(0, def.postura - dmg * 0.35);
+  // iai conectado: el desenvaine muele la postura mucho más de lo normal
+  if (att.iai) {
+    def.postura = Math.max(0, def.postura - dmg * 0.6);
+    floatText(def.x, bodyCenterY(def) - 58, '¡IAI!', '#fff0a0', 17);
+    att.iai = false;
+  }
   def.state = PSTATE.HITSTUN;
   // gedan barre las piernas: derriba (más aturdimiento y vuelo alto)
   const barrida = KAMAE[att.atkKamae != null ? att.atkKamae : 1].sweep;
@@ -217,6 +243,7 @@ function tryHit(att, def) {
       shake = 8;
       spawnClash((att.x + def.x) / 2, bodyCenterY(def) - 8);
       floatText(def.x, bodyCenterY(def) - 52, '¡PARRY!', '#80e8ff', 22);
+      if (att.iai) failIai(att);   // iai leído y desviado: doblemente castigado
       return;
     }
     if (K.vsGuardia === 'pierde') {
@@ -229,6 +256,7 @@ function tryHit(att, def) {
       shake = 5;
       spawnSparks((att.x + def.x) / 2, def.y - 16 * def.scale);
       floatText(def.x, bodyCenterY(def) - 46, '¡BARRIDO PARADO!', '#9ad0e8', 15);
+      if (att.iai) failIai(att);
       return;
     }
     if (!enLinea) {
@@ -239,6 +267,9 @@ function tryHit(att, def) {
     // bloqueo en línea: sin daño, pierde postura — jōdan la muele (rompe guardia)
     const breakMul = (att.char.breakMul || 1) * (K.breakMul || 1);
     def.postura -= dmgCorte * 0.65 * breakMul;
+    // iai contra la guardia: no es corte limpio ni te cortan — muele la
+    // guardia aún más, pero no te deja vendido (presionaste, no fallaste)
+    if (att.iai) { def.postura -= dmgCorte * 0.5; att.iai = false; }
     def.stats.blocks++;
     def.vx = att.facing * 200;
     sfxBlock();
@@ -265,6 +296,7 @@ function tryHit(att, def) {
     timeScale = 0.5; slowmoTimer = 0.12;
     spawnClash((att.x + def.x) / 2, bodyCenterY(def) + (K.sweep ? 24 : -8));
     floatText(def.x, bodyCenterY(def) - 48, '¡NEUTRALIZADO!', '#b0e8a0', 17);
+    if (att.iai) failIai(att);
     return;
   }
   applyDamage(def, att, dmgCorte);

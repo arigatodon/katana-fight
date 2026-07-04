@@ -175,6 +175,8 @@ function drawOrigami(p, ghostAlpha, rec) {
     case PSTATE.HITSTUN: lean = -0.24; dx = -6; armRot = -0.20; break;
     case PSTATE.EXPOSED: lean = 0.14 + Math.sin(p.bob * 6) * 0.04; armRot = 0.10; break;
   }
+  // iai: en reposo con la katana envainada, el brazo armado baja al costado
+  if (p.sheathed && p.state === PSTATE.IDLE) { armRot = 0.85; lean = -0.03; }
 
   ctx.save();
   if (ghostAlpha !== undefined) ctx.globalAlpha = ghostAlpha;
@@ -963,6 +965,16 @@ function drawSamurai(p, ghostAlpha) {
     case PSTATE.DEAD:
       grip = null; footF = 13; footB = -12;
       break;
+  }
+
+  // katana aún en la vaina (iaijutsu): en reposo la mano descansa en la
+  // empuñadura al costado y la hoja yace horizontal sobre el obi — silueta
+  // distinta de la guardia, para que se lea que el primer corte será un
+  // desenvaine (sin HUD). Guardar o atacar ya desenvainó, así que solo aquí.
+  if (p.sheathed && p.state === PSTATE.IDLE && grip) {
+    grip = { x: 2, y: -32 + wob };   // mano en la empuñadura, a la altura del obi
+    ang = 3.02;                      // hoja casi horizontal hacia atrás: envainada
+    lean = -1;
   }
 
   const hipY = -34, shoulderY = -56;

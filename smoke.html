@@ -88,8 +88,8 @@
         update(1 / 60);
         __kamaes.add(p1.kamae); __kamaes.add(p2.kamae);
         if (tk % 7 === 0) {
-          const s = [p1.x, p1.y, p1.vida, p1.postura, p1.state, p1.kamae,
-                     p2.x, p2.y, p2.vida, p2.postura, p2.state, p2.kamae,
+          const s = [p1.x, p1.y, p1.vida, p1.postura, p1.state, p1.kamae, p1.sheathed, p1.iai,
+                     p2.x, p2.y, p2.vida, p2.postura, p2.state, p2.kamae, p2.sheathed, p2.iai,
                      roundNum, scene, destino.id, stage.id].join(',');
           for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0;
         }

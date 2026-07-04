@@ -18,6 +18,7 @@ function makePlayer(x, facing, char, isCPU, name, virtud, statBoost) {
     state: PSTATE.IDLE, stateTimer: 0,
     vida: VIDA_MAX, postura: 0,
     kamae: 1, atkKamae: 1,          // línea de kenjutsu actual y la del corte en curso
+    sheathed: true, iai: false,     // katana envainada: el primer corte es un iai
     wins: 0, isCPU,
     onGround: true, jumpsUsed: 0,
     deathT: 0, guardT: 0,

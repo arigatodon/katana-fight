@@ -4,9 +4,9 @@
 > beat 'em up KATANA RŌNIN con co-op, ranking global, clima real, táctil básico, desplegado en
 > katana.igorv.org e itch.io. Donaciones por enlace (Buda / Mercado Pago).
 >
-> **FASE 1 COMPLETA** (jul 2026): colisión de cuerpos, revancha, salas privadas, replays
-> compartibles y espectadores en vivo — todo verificado con `smoke.html` + `e2e_online.py`.
-> Lo siguiente: FASE 2 (kamae + iaijutsu), el corazón del juego.
+> **FASE 1 y FASE 2 COMPLETAS** (jul 2026): colisión de cuerpos, revancha, salas privadas, replays
+> compartibles, espectadores en vivo, kamae (posturas) + iaijutsu (desenvaine) con protocolo v2 —
+> todo verificado con `smoke.html` + `e2e_online.py`. Lo siguiente: FASE 3 (razones para volver).
 
 ## La tesis del ×10
 
@@ -118,18 +118,25 @@ barrido); la guardia solo cubre la línea de tu propia kamae.
   - [x] `e2e_online.py` pasa con el protocolo nuevo; cliente viejo (`v:1`) recibe `{t:'ver'}` y se cierra, no una pelea corrupta.
   - [x] Los 13 personajes siguen diferenciados: 5 tienen afinidad de kamae (`kamaeFav`) — GIGANTE/TENGU alta, MAESTRO media, NIÑO/KAPPA baja.
 
-### 2.2 Iaijutsu: desenvaine — esfuerzo S
+### 2.2 Iaijutsu: desenvaine — esfuerzo S — ✅ HECHO
 
-Al inicio de cada ronda ambos empiezan con la katana envainada; el primer corte desde la vaina es
-un iai (más rápido y con más rotura de postura), pero fallar el iai te deja EXPOSED un instante.
-Convierte los primeros 2 segundos de cada ronda en un duelo de nervios, como el modo GOLPE FINAL
+Al inicio de cada ronda ambos empiezan con la katana envainada (`p.sheathed`); el primer corte
+desde la vaina es un iai (windup ×0.6 y mucha más rotura de postura), pero fallarlo te deja EXPOSED
+un instante. Convierte la apertura de cada ronda en un duelo de nervios, como el modo GOLPE FINAL
 pero integrado en toda ronda.
 
+- Lógica en `combat.js`: `startAttack` marca `iai` si venías envainado; `startGuard` desenvaina
+  (bloquear no es iai); el iai conectado muele postura extra (`applyDamage`), y `failIai` lo castiga
+  con EXPOSED al ser leído (parry/barrido/neutralizado en `tryHit`) o al aire (`update.js`, ATTACK
+  sin `hitDone`). Bloquear un iai en línea muele la guardia pero no te deja vendido.
+- Sin bits nuevos (el iai se deriva del estado envainado, no del input) → protocolo sigue en v2.
+- Se LEE en el rig (`render.js`): en reposo la katana descansa horizontal sobre el obi, silueta
+  distinta de la guardia (verificado con captura).
 - **Criterios de aceptación:**
-  - [ ] El iai solo existe en el primer ataque de cada ronda por jugador; después, combate normal.
-  - [ ] Iai fallado (al aire o parado) → ventana EXPOSED castigable; iai conectado → daño de postura extra.
-  - [ ] Determinista: `smoke.html` y `e2e_online.py` pasan.
-  - [ ] El destino "sangre" (one-hit) y el modo GOLPE FINAL siguen funcionando y no se rompen con el iai.
+  - [x] El iai solo existe en el primer ataque de cada ronda por jugador; después, combate normal.
+  - [x] Iai fallado (al aire o parado) → ventana EXPOSED castigable; iai conectado → daño de postura extra.
+  - [x] Determinista: `smoke.html` (mismo hash, iai/sheathed en la corriente) y `e2e_online.py` (760/1668/3558 tics idénticos) pasan.
+  - [x] El destino "sangre" (one-hit) y el modo GOLPE FINAL siguen funcionando: la letalidad se evalúa antes del bono de postura del iai, así que no se rompen.
 
 ---
 
@@ -268,10 +275,9 @@ reporte host/invitado como en el duelo.
 ## Orden sugerido y dependencias
 
 ```
-HECHO      Fase 0 (colisión) y FASE 1 entera (revancha, salas, replays, espectadores)
-AHORA      FASE 2: 2.1 kamae + protocolo v (L) → 2.2 iaijutsu (S)
-FASE 2     2.1 kamae + protocolo v (L) → 2.2 iaijutsu (S)     ← el corazón del juego
-FASE 3     3.1 diario (M) → 3.2 yokai en RŌNIN (M) → 3.3 gestas (S)
+HECHO      Fase 0 (colisión), FASE 1 entera (revancha, salas, replays, espectadores)
+HECHO      FASE 2 entera: 2.1 kamae + protocolo v2 (L) → 2.2 iaijutsu (S)
+AHORA      FASE 3: 3.1 diario (M) → 3.2 yokai en RŌNIN (M) → 3.3 gestas (S)
 FASE 4     4.1 mecenas + Stripe (L) → 4.2 muro del dojo (S)
 FASE 5     5.1 PWA (S) y 5.3 telemetría (S) pueden ir EN CUALQUIER MOMENTO (cuanto antes mejor);
            5.2 táctil kenjutsu tras 2.1; 5.4 anti-trampa beat cuando haya un hueco

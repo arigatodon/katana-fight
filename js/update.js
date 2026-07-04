@@ -45,8 +45,9 @@ function updatePlayer(p, foe, isP1, dt) {
           break;
         }
         case PSTATE.ATTACK:
-          p.state = PSTATE.RECOVER;
-          p.stateTimer = p.recover;
+          // iai al aire: si el desenvaine no tocó a nadie, quedas vendido
+          if (p.iai && !p.hitDone) { failIai(p); }
+          else { p.state = PSTATE.RECOVER; p.stateTimer = p.recover; p.iai = false; }
           break;
         case PSTATE.FEINT:
           p.state = PSTATE.RECOVER;

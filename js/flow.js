@@ -153,6 +153,7 @@ function resetRound() {
     p.x = x; p.y = GROUND; p.vx = 0; p.vy = 0; p.facing = f;
     p.state = PSTATE.IDLE; p.stateTimer = 0;
     p.kamae = 1; p.atkKamae = 1;      // cada ronda arranca en chūdan
+    p.sheathed = true; p.iai = false; // y con la katana envainada (iai listo)
     p.vida = VIDA_MAX;
     p.bet = APUESTAS[betSel[p === p1 ? 0 : 1]].id;
     deriveAttrs(p);
