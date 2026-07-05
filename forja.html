@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KATANA FIGHT — La Forja</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #14141c; color: #e8e0d0; font-family: 'Courier New', monospace;
+    min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 20px 14px 60px; }
+  h1 { color: #e8c050; margin: 6px 0 2px; letter-spacing: 3px; font-size: 26px; }
+  h1 .k { color: #c03434; }
+  .sub { color: #9a927e; font-size: 13px; margin-bottom: 18px; text-align: center; max-width: 560px; line-height: 1.5; }
+  .card { width: 100%; max-width: 560px; background: #1b1b26; border: 1px solid #33333f; padding: 18px 20px; margin-bottom: 16px; }
+  h2 { color: #e8c050; font-size: 15px; margin: 0 0 10px; border-bottom: 1px solid #33333f; padding-bottom: 6px; }
+  label { display: block; color: #c0b8a8; font-size: 12px; margin: 10px 0 3px; }
+  input[type=text], textarea, input[type=color] { width: 100%; background: #0e0e16; color: #e8e0d0;
+    border: 1px solid #444; padding: 8px; font-family: inherit; font-size: 13px; }
+  textarea { resize: vertical; min-height: 62px; }
+  input[type=color] { height: 40px; padding: 3px; cursor: pointer; }
+  .row { display: flex; gap: 12px; }
+  .row > div { flex: 1; }
+  .hint { color: #77715e; font-size: 11px; margin-top: 3px; line-height: 1.4; }
+  /* stats */
+  .puntos { text-align: center; font-size: 15px; margin: 4px 0 12px; }
+  .puntos b { color: #9ad0e8; font-size: 20px; }
+  .puntos.mal b { color: #e05a4a; }
+  .puntos.bien b { color: #6ad06a; }
+  .stat { display: flex; align-items: center; gap: 10px; margin: 7px 0; }
+  .stat .nom { flex: 0 0 92px; color: #c0b8a8; font-size: 12px; }
+  .stat input[type=range] { flex: 1; accent-color: #c03434; }
+  .stat .v { flex: 0 0 32px; text-align: right; color: #9ad0e8; font-size: 14px; }
+  .bar { flex: 0 0 90px; height: 8px; background: #0e0e16; border: 1px solid #333; }
+  .bar > i { display: block; height: 100%; background: #c03434; }
+  /* boton */
+  .forjar { display: block; width: 100%; margin-top: 8px; background: #b03030; color: #fff;
+    border: 1px solid #e8c050; padding: 14px; font-family: inherit; font-size: 16px; letter-spacing: 2px;
+    cursor: pointer; }
+  .forjar:disabled { background: #3a2a2a; border-color: #554; color: #887; cursor: not-allowed; }
+  .forjar:not(:disabled):hover { background: #c94040; }
+  #estado { margin-top: 14px; font-size: 13px; min-height: 20px; text-align: center; }
+  #estado.err { color: #e05a4a; }
+  #estado.ok { color: #6ad06a; }
+  .prev { display: flex; gap: 12px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
+  .prev figure { margin: 0; text-align: center; }
+  .prev img { height: 150px; background: #0e0e16; border: 1px solid #333; image-rendering: pixelated; }
+  .prev figcaption { color: #887; font-size: 11px; margin-top: 4px; }
+  a.volver { color: #9ad0e8; font-size: 12px; text-decoration: none; margin-top: 8px; }
+  .precio { color: #e8c050; }
+</style>
+</head>
+<body>
+  <h1>⚔ LA FORJA <span class="k">鍛冶</span></h1>
+  <div class="sub">Crea tu propio guerrero de katana. Elige su aspecto y reparte sus fuerzas
+    en una <b>bolsa de 120 puntos</b> —igual que el plantel del juego, así queda equilibrado—.
+    Se dibuja al estilo ukiyo-e del juego y, tras una revisión, entra al plantel público:
+    lo jugarás tú y cualquiera, en torneo y en línea.</div>
+
+  <div class="card">
+    <h2>1 · Aspecto</h2>
+    <label>Nombre del guerrero</label>
+    <input type="text" id="nombre" maxlength="16" placeholder="p. ej. ZORRO CARMESÍ">
+    <div class="row">
+      <div>
+        <label>Kanji (opcional, 1–4)</label>
+        <input type="text" id="kanji" maxlength="4" placeholder="狐">
+      </div>
+      <div>
+        <label>Color de acento</label>
+        <input type="color" id="accent" value="#c03434">
+      </div>
+    </div>
+    <label>Descripción (así se verá)</label>
+    <textarea id="desc" maxlength="200" placeholder="una samurái con máscara de zorro, kimono azul índigo y una cinta roja en el pelo"></textarea>
+    <div class="hint">Describe solo al personaje (ropa, pelo, máscara, color…). El estilo del juego
+      y la katana se añaden solos. Sin marcas, personas reales ni contenido subido de tono.</div>
+  </div>
+
+  <div class="card">
+    <h2>2 · Fuerzas</h2>
+    <div class="puntos" id="puntos">Puntos por repartir: <b>0</b> / 120</div>
+    <div id="stats"></div>
+    <div class="hint">Corte = daño · Postura = defensa/guardia · Agilidad = velocidad de pies ·
+      Engaño = fintas · Reflejos = parry · Espíritu = recuperación. Cada fuerza va de 5 a 40 y deben sumar 120.</div>
+  </div>
+
+  <div class="card">
+    <h2>3 · Forjar <span class="precio">· $3</span></h2>
+    <label>Código de creación (token)</label>
+    <input type="text" id="token" placeholder="lo recibes al pagar">
+    <div class="hint">Cada código crea un guerrero. La generación tarda ~1–2 min (dibuja 3 piezas).</div>
+    <button class="forjar" id="forjar" disabled>FORJAR GUERRERO</button>
+    <div id="estado"></div>
+    <div class="prev" id="prev"></div>
+  </div>
+
+  <a class="volver" href="index.html">← volver al juego</a>
+
+<script>
+'use strict';
+// base del servidor: mismo origen por defecto; ?server=http://host para probar
+// contra otro despliegue (igual que el juego).
+const SERVER = new URLSearchParams(location.search).get('server')
+  || (location.protocol === 'file:' ? 'http://localhost:8081' : '');
+
+const STATS = [
+  ['corte', 'CORTE'], ['postura', 'POSTURA'], ['agilidad', 'AGILIDAD'],
+  ['engano', 'ENGAÑO'], ['reflejos', 'REFLEJOS'], ['espiritu', 'ESPÍRITU'],
+];
+const BUDGET = 120, MIN = 5, MAX = 40;
+
+// arranca en 20 cada uno (=120, como el RONIN)
+const val = {};
+STATS.forEach(([k]) => val[k] = 20);
+
+const cont = document.getElementById('stats');
+STATS.forEach(([k, nom]) => {
+  const row = document.createElement('div');
+  row.className = 'stat';
+  row.innerHTML = `<span class="nom">${nom}</span>
+    <input type="range" min="${MIN}" max="${MAX}" value="${val[k]}" id="s_${k}">
+    <span class="v" id="v_${k}">${val[k]}</span>
+    <span class="bar"><i id="b_${k}"></i></span>`;
+  cont.appendChild(row);
+  row.querySelector('input').addEventListener('input', e => {
+    val[k] = +e.target.value;
+    pintar();
+  });
+});
+
+function suma() { return STATS.reduce((s, [k]) => s + val[k], 0); }
+
+function pintar() {
+  STATS.forEach(([k]) => {
+    document.getElementById('v_' + k).textContent = val[k];
+    document.getElementById('b_' + k).style.width = (100 * (val[k] - MIN) / (MAX - MIN)) + '%';
+  });
+  const rest = BUDGET - suma();
+  const pd = document.getElementById('puntos');
+  pd.innerHTML = `Puntos por repartir: <b>${rest}</b> / 120`;
+  pd.className = 'puntos ' + (rest === 0 ? 'bien' : 'mal');
+  actualizarBoton();
+}
+
+function datosValidos() {
+  const nombre = document.getElementById('nombre').value.trim();
+  const desc = document.getElementById('desc').value.trim();
+  const token = document.getElementById('token').value.trim();
+  return suma() === BUDGET && nombre.length >= 2 && desc.length >= 6 && token.length >= 3;
+}
+function actualizarBoton() {
+  document.getElementById('forjar').disabled = !datosValidos() || forjando;
+}
+['nombre', 'desc', 'token'].forEach(id =>
+  document.getElementById(id).addEventListener('input', actualizarBoton));
+
+let forjando = false;
+const est = document.getElementById('estado');
+const prev = document.getElementById('prev');
+
+document.getElementById('forjar').addEventListener('click', async () => {
+  if (!datosValidos()) return;
+  forjando = true; actualizarBoton();
+  prev.innerHTML = '';
+  est.className = ''; est.textContent = 'Forjando… (esto tarda ~1–2 min, no cierres la página)';
+  const payload = {
+    token: document.getElementById('token').value.trim(),
+    name: document.getElementById('nombre').value.trim(),
+    kanji: document.getElementById('kanji').value.trim(),
+    desc: document.getElementById('desc').value.trim(),
+    accent: document.getElementById('accent').value,
+    stats: val,
+  };
+  try {
+    const r = await fetch(SERVER + '/forja/crear', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (!d.ok) { throw new Error(d.error || 'no se pudo crear'); }
+    sondear(d.id);
+  } catch (e) {
+    est.className = 'err'; est.textContent = '✖ ' + e.message;
+    forjando = false; actualizarBoton();
+  }
+});
+
+function sondear(id) {
+  const t = setInterval(async () => {
+    try {
+      const d = await (await fetch(SERVER + '/forja/estado?id=' + encodeURIComponent(id))).json();
+      if (!d.ok) return;
+      if (d.parts) {
+        const hechas = Object.keys(d.parts).length;
+        if (d.status === 'generando') est.textContent = `Forjando… piezas listas: ${hechas}/3`;
+      }
+      if (d.status === 'listo') {
+        clearInterval(t);
+        est.className = 'ok';
+        est.innerHTML = '✔ ¡Guerrero forjado! Quedó <b>en revisión</b>; al aprobarse entra al plantel público.';
+        mostrarPiezas(d.parts);
+        forjando = false;
+      } else if (d.status === 'error') {
+        clearInterval(t);
+        est.className = 'err'; est.textContent = '✖ ' + (d.error || 'error al generar');
+        forjando = false; actualizarBoton();
+      }
+    } catch (e) { /* reintenta al siguiente tick */ }
+  }, 3000);
+}
+
+function mostrarPiezas(parts) {
+  prev.innerHTML = '';
+  [['torso', 'torso'], ['brazos', 'brazos'], ['pierna', 'pierna']].forEach(([k, nom]) => {
+    if (!parts[k]) return;
+    const fig = document.createElement('figure');
+    fig.innerHTML = `<img src="${SERVER}/${parts[k]}?_=${Date.now()}" alt="${nom}">
+      <figcaption>${nom}</figcaption>`;
+    prev.appendChild(fig);
+  });
+}
+
+pintar();
+</script>
+</body>
+</html>

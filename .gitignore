@@ -1,5 +1,7 @@
 .kamal/secrets.local
 .kamal/registry-password
+.kamal/forja-tokens
+.kamal/forja-admin-key
 server/node_modules/
 tools/ai_raw/
 tools/__pycache__/

@@ -9,4 +9,8 @@ Dockerfile
 # editores: solo desarrollo local, nunca a producción
 rig_editor.html
 escena_editor.html
-tools
+# de tools/ solo entran los 2 scripts que usa LA FORJA en runtime;
+# el resto (generadores/editores) se queda fuera
+tools/*
+!tools/generar_parte.py
+!tools/generate_art.py

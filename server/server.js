@@ -329,6 +329,228 @@ function escapeHtml(s) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// ============================================================
+//  LA FORJA — personajes creados por usuarios (monetización)
+//
+//  El usuario paga (Fase 2) → se mintea un token de un solo uso →
+//  con ese token crea un personaje en forja.html: elige stats con una
+//  BOLSA FIJA DE PUNTOS (balanceado por construcción) y una descripción
+//  que rellena el hueco del prompt (el estilo ukiyo-e queda fijo en
+//  tools/generate_art.py). El servidor genera las 3 piezas con Nano
+//  Banana, las guarda en el VOLUMEN (sobreviven deploys) y encola la
+//  ficha para MODERACIÓN. Al aprobar, la ficha entra al roster público
+//  (forja_chars.json), que el juego fusiona vía GET /chars.json — y como
+//  ambos clientes online leen el mismo chars.json, el lockstep no diverge.
+// ============================================================
+const FORJA_PARTS_DIR = path.join(DATA_DIR, 'forja_parts');            // arte generado (overlay de assets/parts)
+const FORJA_PENDING_FILE = path.join(DATA_DIR, 'forja_pendientes.json'); // cola de moderación
+const FORJA_PUBLIC_FILE = path.join(DATA_DIR, 'forja_chars.json');       // fichas aprobadas (públicas)
+const FORJA_TOKENS_FILE = path.join(DATA_DIR, 'forja_tokens.json');      // tokens de un solo uso disponibles
+// Clave de moderación: en local basta 'dev'; en prod, la de FORJA_ADMIN_KEY.
+const FORJA_ADMIN_KEY = process.env.FORJA_ADMIN_KEY || (DEV ? 'dev' : '');
+const FORJA_STATS = ['corte', 'postura', 'agilidad', 'engano', 'reflejos', 'espiritu'];
+const FORJA_BUDGET = 120, FORJA_STAT_MIN = 5, FORJA_STAT_MAX = 40;   // igual que el roster base
+// Filtro básico de contenido (el modelo de imagen ya rechaza lo grave; esto
+// es una primera barrera para lo obvio antes de gastar una generación).
+const FORJA_BADWORDS = ['nazi', 'hitler', 'porn', 'nsfw', 'sexo', 'sexual', 'desnud', 'violaci', 'nigger', 'puta', 'pene', 'vagina'];
+// Tope de seguridad: máximo de personajes forjados por día (UTC). Fusible contra
+// bugs/abuso — cada personaje son 3 imágenes, así que 40 ≈ 120 llamadas/día. El
+// gasto ya está atado a los ingresos (solo se genera tras pagar), esto es el
+// cinturón extra. Configurable con FORJA_MAX_DIA.
+const FORJA_MAX_DIA = Math.max(1, parseInt(process.env.FORJA_MAX_DIA, 10) || 40);
+const FORJA_USO_FILE = path.join(DATA_DIR, 'forja_uso.json');   // { 'YYYYMMDD': nºgenerados }
+
+function forjaLoad(file, def) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return def; } }
+function forjaWrite(file, data) {
+  try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(file, JSON.stringify(data)); }
+  catch (e) { console.error('no se pudo guardar', path.basename(file) + ':', e.message); }
+}
+let forjaPending = forjaLoad(FORJA_PENDING_FILE, []);   // [{id,name,kanji,desc,stats,pal,creado}]
+let forjaPublic = forjaLoad(FORJA_PUBLIC_FILE, []);     // fichas aprobadas
+let forjaTokens = forjaLoad(FORJA_TOKENS_FILE, []);     // [string] disponibles (sin usar)
+let forjaUso = forjaLoad(FORJA_USO_FILE, {});          // día → nº de personajes forjados
+const forjaJobs = new Map();   // id -> { status:'generando'|'listo'|'error', parts:{}, error, ficha, token }
+
+// ¿queda cupo hoy? Cuenta al ARRANCAR la generación (los fallos también gastan
+// una llamada, así que cuentan: es más conservador = "no gastar de más").
+function forjaCupoHoy() {
+  const dia = utcDay();
+  return (forjaUso[dia] || 0) < FORJA_MAX_DIA;
+}
+function forjaSumaUso() {
+  const dia = utcDay();
+  forjaUso[dia] = (forjaUso[dia] || 0) + 1;
+  // poda: conserva solo los últimos ~7 días
+  const dias = Object.keys(forjaUso).sort();
+  while (dias.length > 7) delete forjaUso[dias.shift()];
+  forjaWrite(FORJA_USO_FILE, forjaUso);
+}
+
+// Tokens fijos por entorno (FORJA_TOKENS, separados por coma): reusables, para
+// pruebas del dueño en producción (donde 'test' no aplica). Acotados por el tope
+// diario y la cuota de Google. Los tokens de PAGO de un solo uso viven aparte
+// en forja_tokens.json (Fase 2, minteados por el webhook).
+const FORJA_ENV_TOKENS = (process.env.FORJA_TOKENS || '').split(',').map(s => s.trim()).filter(Boolean);
+
+// ¿el token es válido? En DEV, 'test' siempre vale (para probar sin pagar).
+function forjaTokenOk(tok) {
+  if (!tok) return false;
+  if (DEV && tok === 'test') return true;
+  if (FORJA_ENV_TOKENS.includes(tok)) return true;
+  return forjaTokens.includes(tok);
+}
+// consume el token (un solo uso). 'test' y los de entorno NO se consumen.
+function forjaConsumeToken(tok) {
+  if (DEV && tok === 'test') return;
+  if (FORJA_ENV_TOKENS.includes(tok)) return;
+  const i = forjaTokens.indexOf(tok);
+  if (i >= 0) { forjaTokens.splice(i, 1); forjaWrite(FORJA_TOKENS_FILE, forjaTokens); }
+}
+
+// valida y normaliza los stats contra la bolsa de puntos (server-side, nunca
+// confía en el cliente). Devuelve el objeto limpio o null si no cuadra.
+function forjaValidStats(s) {
+  if (!s || typeof s !== 'object') return null;
+  const out = {}; let sum = 0;
+  for (const k of FORJA_STATS) {
+    const v = Math.round(Number(s[k]));
+    if (!Number.isFinite(v) || v < FORJA_STAT_MIN || v > FORJA_STAT_MAX) return null;
+    out[k] = v; sum += v;
+  }
+  if (sum !== FORJA_BUDGET) return null;
+  return out;
+}
+
+// saneo de la descripción antes de meterla en el prompt: sin llaves (romperían
+// el .format de Python), sin control chars, colapsa espacios, tope de largo.
+function forjaCleanDesc(d) {
+  return String(d || '').replace(/[{}]/g, '').replace(/[\u0000-\u001f]/g, ' ')
+    .replace(/\s+/g, ' ').trim().slice(0, 200);
+}
+function forjaSafeText(t) {
+  const low = String(t).toLowerCase();
+  return !FORJA_BADWORDS.some(w => low.includes(w));
+}
+function forjaCleanColor(c, def) {
+  return /^#[0-9a-f]{6}$/i.test(String(c || '')) ? String(c).toLowerCase() : def;
+}
+// paleta a partir de un acento elegido (el resto se dibuja con el arte generado,
+// la paleta solo tiñe FX/HUD; damos un default sobrio si no eligen).
+function forjaPal(accent) {
+  const a = forjaCleanColor(accent, '#c03434');
+  return { kimono: '#ece4d2', kimonoDark: '#c6b89e', hakama: '#3a3e48', hakamaDark: '#24272e',
+    obi: '#3a2a22', accent: a, skin: '#dca87c', hair: '#1c1410' };
+}
+
+// genera las 3 piezas (secuencial: no martillea la API) al volumen y, al
+// terminar, encola la ficha para moderación. Actualiza el job para el sondeo.
+function forjaGenerar(job) {
+  const parts = ['torso', 'pierna', 'brazos'];
+  const outDir = FORJA_PARTS_DIR;                 // generar_parte.py hará outDir/<id>/<parte>.png
+  let idx = 0;
+  const next = () => {
+    if (idx >= parts.length) {
+      forjaPending.push(job.ficha);
+      forjaWrite(FORJA_PENDING_FILE, forjaPending);
+      forjaConsumeToken(job.token);
+      job.status = 'listo';
+      console.log(new Date().toISOString(), `forja: "${job.ficha.id}" generado y encolado para moderación`);
+      return;
+    }
+    const part = parts[idx++];
+    const args = [path.join(ROOT, 'tools', 'generar_parte.py'), job.ficha.id, part, job.ficha.desc];
+    const py = spawn('python3', args, { cwd: ROOT, env: Object.assign({}, process.env, { PARTS_OUT_DIR: outDir }) });
+    let out = '';
+    const to = setTimeout(() => { try { py.kill(); } catch (e) {} }, 150000);
+    py.stdout.on('data', d => out += d);
+    py.stderr.on('data', d => out += d);
+    py.on('error', e => { clearTimeout(to); job.status = 'error'; job.error = 'python3: ' + e.message; });
+    py.on('close', () => {
+      clearTimeout(to);
+      if (job.status === 'error') return;
+      if (!/(^|\n)OK /.test(out)) { job.status = 'error'; job.error = `no se pudo generar ${part}: ${out.trim().slice(-200)}`; return; }
+      job.parts[part] = `assets/parts/${job.ficha.id}/${part}.png`;
+      next();
+    });
+    console.log(new Date().toISOString(), `forja: generando ${part} de "${job.ficha.id}"`);
+  };
+  next();
+}
+
+function postForjaCrear(req, res) {
+  let body = '';
+  req.on('data', ch => { body += ch; if (body.length > 8192) req.destroy(); });
+  req.on('end', () => {
+    let m; try { m = JSON.parse(body); } catch (e) { res.writeHead(400, CORS_JSON); res.end('{"ok":false,"error":"json"}'); return; }
+    if (!forjaTokenOk(m.token)) { res.writeHead(402, CORS_JSON); res.end('{"ok":false,"error":"token inválido o ya usado"}'); return; }
+    const stats = forjaValidStats(m.stats);
+    if (!stats) { res.writeHead(400, CORS_JSON); res.end(`{"ok":false,"error":"los stats deben sumar ${FORJA_BUDGET} (cada uno ${FORJA_STAT_MIN}-${FORJA_STAT_MAX})"}`); return; }
+    const name = String(m.name || '').replace(/[^\p{L}\p{N} _.-]/gu, '').trim().slice(0, 16).toUpperCase();
+    const kanji = String(m.kanji || '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 4);
+    const desc = forjaCleanDesc(m.desc);
+    if (!name || !desc) { res.writeHead(400, CORS_JSON); res.end('{"ok":false,"error":"nombre y descripción requeridos"}'); return; }
+    if (!forjaSafeText(name) || !forjaSafeText(desc)) { res.writeHead(400, CORS_JSON); res.end('{"ok":false,"error":"contenido no permitido"}'); return; }
+    // fusible de gasto: tope diario de creaciones (no consume el token, así el
+    // que pagó puede reintentar mañana)
+    if (!forjaCupoHoy()) { res.writeHead(429, CORS_JSON); res.end(`{"ok":false,"error":"hoy se alcanzó el máximo de creaciones (${FORJA_MAX_DIA}); intenta de nuevo mañana — tu código sigue válido"}`); return; }
+    const id = 'f_' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+    const ficha = { id, name, kanji, desc, stats, pal: forjaPal(m.accent), forja: true, creado: Date.now() };
+    const job = { status: 'generando', parts: {}, error: null, ficha, token: m.token };
+    forjaJobs.set(id, job);
+    forjaSumaUso();
+    forjaGenerar(job);
+    res.writeHead(200, CORS_JSON); res.end(JSON.stringify({ ok: true, id }));
+  });
+}
+
+function forjaEstado(req, res) {
+  let id = '';
+  try { id = new URL(req.url, 'http://x').searchParams.get('id') || ''; } catch (e) {}
+  const job = forjaJobs.get(id);
+  if (!job) { res.writeHead(404, CORS_JSON); res.end('{"ok":false}'); return; }
+  res.writeHead(200, CORS_JSON);
+  res.end(JSON.stringify({ ok: true, status: job.status, parts: job.parts, error: job.error, ficha: job.ficha }));
+}
+
+// --- Moderación (protegida con FORJA_ADMIN_KEY) ---
+function forjaAdminOk(req) {
+  if (!FORJA_ADMIN_KEY) return false;
+  let key = '';
+  try { key = new URL(req.url, 'http://x').searchParams.get('key') || ''; } catch (e) {}
+  return key === FORJA_ADMIN_KEY;
+}
+function forjaModerar(req, res) {   // POST /forja/moderar?key=... {id, accion:'aprobar'|'rechazar'}
+  if (!forjaAdminOk(req)) { res.writeHead(403, CORS_JSON); res.end('{"ok":false}'); return; }
+  let body = '';
+  req.on('data', ch => { body += ch; if (body.length > 4096) req.destroy(); });
+  req.on('end', () => {
+    let m; try { m = JSON.parse(body); } catch (e) { res.writeHead(400, CORS_JSON); res.end('{"ok":false}'); return; }
+    const i = forjaPending.findIndex(f => f.id === m.id);
+    if (i < 0) { res.writeHead(404, CORS_JSON); res.end('{"ok":false}'); return; }
+    const [ficha] = forjaPending.splice(i, 1);
+    forjaWrite(FORJA_PENDING_FILE, forjaPending);
+    if (m.accion === 'aprobar') {
+      forjaPublic.push(ficha);
+      forjaWrite(FORJA_PUBLIC_FILE, forjaPublic);
+      console.log(new Date().toISOString(), `forja: "${ficha.id}" APROBADO (público)`);
+    } else {
+      try { fs.rmSync(path.join(FORJA_PARTS_DIR, ficha.id), { recursive: true, force: true }); } catch (e) {}
+      console.log(new Date().toISOString(), `forja: "${ficha.id}" RECHAZADO`);
+    }
+    res.writeHead(200, CORS_JSON); res.end('{"ok":true}');
+  });
+}
+
+// GET /chars.json servido por el server: baked (chars.json commiteado) + público
+// de la forja. Fuente única para local y online → mismo roster en ambos lados.
+function forjaCharsJson() {
+  let baked = [];
+  try { baked = JSON.parse(fs.readFileSync(path.join(ROOT, 'chars.json'), 'utf8')); } catch (e) {}
+  const ids = new Set(baked.map(c => c && c.id));
+  const extra = forjaPublic.filter(c => c && !ids.has(c.id));
+  return JSON.stringify(baked.concat(extra));
+}
+
 function commentsPage() {
   const items = comentarios.slice().reverse().map(c => {
     const fecha = new Date(c.fecha).toLocaleDateString('es-CL',
@@ -449,6 +671,35 @@ const httpServer = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(commentsPage());
     return;
+  }
+  // ---- La Forja: crear personaje pagado (habilitado también en producción) ----
+  if (p === '/forja/crear' && req.method === 'POST') { postForjaCrear(req, res); return; }
+  if (p === '/forja/estado') { forjaEstado(req, res); return; }
+  if (p === '/forja/moderar' && req.method === 'POST') { forjaModerar(req, res); return; }
+  if (p === '/forja/pendientes') {          // lista para el panel de moderación
+    if (!forjaAdminOk(req)) { res.writeHead(403, CORS_JSON); res.end('{"ok":false}'); return; }
+    res.writeHead(200, CORS_JSON); res.end(JSON.stringify({ ok: true, pendientes: forjaPending }));
+    return;
+  }
+  // roster público: baked (chars.json commiteado) + personajes aprobados de la forja
+  if (p === '/chars.json') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(forjaCharsJson());
+    return;
+  }
+  // arte generado por usuarios: overlay del volumen sobre assets/parts (si existe
+  // la pieza en el volumen, se sirve esa; si no, cae al static de siempre)
+  if (p.startsWith('/assets/parts/')) {
+    const rel = p.slice('/assets/parts/'.length);
+    const ov = path.normalize(path.join(FORJA_PARTS_DIR, rel));
+    if (ov.startsWith(FORJA_PARTS_DIR + path.sep) && !rel.includes('..') && fs.existsSync(ov)) {
+      fs.readFile(ov, (err, data) => {
+        if (err) { res.writeHead(404); res.end(); return; }
+        res.writeHead(200, { 'Content-Type': 'image/png', 'Access-Control-Allow-Origin': '*' });
+        res.end(data);
+      });
+      return;
+    }
   }
   // ---- Editor de escenarios (herramienta de desarrollo, solo en local) ----
   if (p.startsWith('/api/') && !DEV) { res.writeHead(404); res.end(); return; }

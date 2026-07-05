@@ -25,6 +25,14 @@ proxy:
     path: /up
     interval: 5
 
+# LA FORJA: la key de Gemini, el código de creación y la clave de moderación
+# se inyectan como variables de entorno (resueltas desde .kamal/secrets)
+env:
+  secret:
+    - GOOGLE_API_KEY
+    - FORJA_TOKENS
+    - FORJA_ADMIN_KEY
+
 registry:
   username: arigatodon
   password:

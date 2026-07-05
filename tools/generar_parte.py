@@ -40,7 +40,10 @@ def main():
         bb = keyed.getbbox()
         if bb:
             keyed = keyed.crop(bb)
-        out_dir = os.path.join(HERE, '..', 'assets', 'parts', cid)
+        # PARTS_OUT_DIR permite redirigir la salida (p. ej. al volumen de datos
+        # en producción, donde el arte de usuario debe sobrevivir a los deploys).
+        base_out = os.environ.get('PARTS_OUT_DIR') or os.path.join(HERE, '..', 'assets', 'parts')
+        out_dir = os.path.join(base_out, cid)
         os.makedirs(out_dir, exist_ok=True)
         dest = os.path.join(out_dir, f'{part}.png')
         if os.path.exists(dest):                      # respaldar la anterior, no perderla

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>La Forja — Moderación</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #14141c; color: #e8e0d0; font-family: 'Courier New', monospace; padding: 20px; }
+  h1 { color: #e8c050; letter-spacing: 2px; font-size: 20px; }
+  .barra { margin-bottom: 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  input { background: #0e0e16; color: #e8e0d0; border: 1px solid #444; padding: 7px; font-family: inherit; }
+  button { font-family: inherit; cursor: pointer; border: 1px solid #555; padding: 7px 12px; }
+  .card { background: #1b1b26; border: 1px solid #33333f; padding: 14px; margin-bottom: 14px;
+    display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .arte { display: flex; gap: 8px; }
+  .arte img { height: 120px; background: #0e0e16; border: 1px solid #333; }
+  .info { flex: 1; min-width: 220px; }
+  .info h3 { margin: 0 0 4px; color: #e8c050; }
+  .info .desc { color: #c0b8a8; font-size: 13px; margin: 6px 0; }
+  .stats { font-size: 12px; color: #9ad0e8; }
+  .acc button.ap { background: #2a5a2a; color: #cfe8cf; border-color: #4a8a4a; }
+  .acc button.re { background: #5a2a2a; color: #e8cfcf; border-color: #8a4a4a; margin-left: 6px; }
+  #msg { color: #6ad06a; min-height: 18px; }
+  .vacio { color: #77715e; }
+</style>
+</head>
+<body>
+  <h1>⚔ La Forja — Moderación</h1>
+  <div class="barra">
+    <input type="password" id="key" placeholder="clave de moderación" size="24">
+    <button id="cargar">Cargar pendientes</button>
+    <span id="msg"></span>
+  </div>
+  <div id="lista"></div>
+
+<script>
+'use strict';
+const SERVER = new URLSearchParams(location.search).get('server')
+  || (location.protocol === 'file:' ? 'http://localhost:8081' : '');
+const $ = id => document.getElementById(id);
+
+// recuerda la clave para no re-teclearla
+$('key').value = sessionStorage.getItem('forjaKey') || (new URLSearchParams(location.search).get('key') || '');
+
+$('cargar').addEventListener('click', cargar);
+
+async function cargar() {
+  const key = $('key').value.trim();
+  sessionStorage.setItem('forjaKey', key);
+  $('msg').textContent = 'cargando…';
+  try {
+    const d = await (await fetch(`${SERVER}/forja/pendientes?key=${encodeURIComponent(key)}`)).json();
+    if (!d.ok) throw new Error('clave inválida o sin permiso');
+    $('msg').textContent = `${d.pendientes.length} pendiente(s)`;
+    render(d.pendientes);
+  } catch (e) { $('msg').style.color = '#e05a4a'; $('msg').textContent = '✖ ' + e.message; }
+}
+
+function render(lista) {
+  const cont = $('lista');
+  cont.innerHTML = lista.length ? '' : '<p class="vacio">No hay personajes en revisión.</p>';
+  lista.forEach(f => {
+    const s = f.stats || {};
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.innerHTML = `
+      <div class="arte">
+        <img src="${SERVER}/assets/parts/${f.id}/torso.png" alt="torso">
+        <img src="${SERVER}/assets/parts/${f.id}/brazos.png" alt="brazos">
+        <img src="${SERVER}/assets/parts/${f.id}/pierna.png" alt="pierna">
+      </div>
+      <div class="info">
+        <h3>${esc(f.name)} <span style="color:#c03434">${esc(f.kanji || '')}</span></h3>
+        <div class="desc">"${esc(f.desc)}"</div>
+        <div class="stats">corte ${s.corte} · postura ${s.postura} · agilidad ${s.agilidad}
+          · engaño ${s.engano} · reflejos ${s.reflejos} · espíritu ${s.espiritu}</div>
+        <div class="acc" style="margin-top:10px">
+          <button class="ap">✔ Aprobar</button>
+          <button class="re">✖ Rechazar</button>
+        </div>
+      </div>`;
+    el.querySelector('.ap').addEventListener('click', () => moderar(f.id, 'aprobar', el));
+    el.querySelector('.re').addEventListener('click', () => moderar(f.id, 'rechazar', el));
+    cont.appendChild(el);
+  });
+}
+
+async function moderar(id, accion, el) {
+  const key = $('key').value.trim();
+  try {
+    const d = await (await fetch(`${SERVER}/forja/moderar?key=${encodeURIComponent(key)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, accion }),
+    })).json();
+    if (!d.ok) throw new Error('falló');
+    el.style.opacity = 0.4;
+    el.querySelector('.acc').innerHTML = accion === 'aprobar'
+      ? '<span style="color:#6ad06a">aprobado ✔</span>'
+      : '<span style="color:#e05a4a">rechazado ✖</span>';
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+</script>
+</body>
+</html>

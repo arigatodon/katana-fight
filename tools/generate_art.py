@@ -33,11 +33,12 @@ ENV_PATH = os.path.join(HERE, '..', '..', 'generate_sprites', '.env')
 BG_DIR = os.path.join(HERE, '..', 'assets', 'bg')
 CHAR_DIR = os.path.join(HERE, '..', 'assets', 'chars')
 SHEET_DIR = os.path.join(HERE, '..', 'assets', 'sheets')
-RAW_DIR = os.path.join(HERE, 'ai_raw')
+RAW_DIR = os.environ.get('RAW_DIR') or os.path.join(HERE, 'ai_raw')
 
 MODELS = [
-    'gemini-3.1-flash-image-preview',   # Nano Banana 2 (última generación)
-    'gemini-2.5-flash-image',           # Nano Banana 2.5 Flash (estable)
+    'gemini-3.1-flash-lite-image',      # Nano Banana 2 Lite: el más económico (~$0.034/img,
+                                        # ~4 s), junio 2026 — primario para abaratar la Forja
+    'gemini-2.5-flash-image',           # respaldo estable si el lite no está disponible
 ]
 
 # Tamaños del juego (de js/core.js: canvas 960x540, GROUND = H-80)
@@ -199,11 +200,20 @@ SHEET_PROMPT = (
 
 # ───────────────────────── Gemini ─────────────────────────
 def load_api_key():
-    with open(os.path.abspath(ENV_PATH)) as f:
-        for line in f:
-            if line.startswith('GOOGLE_API_KEY='):
-                return line.split('=', 1)[1].strip()
-    raise RuntimeError('GOOGLE_API_KEY no encontrada en generate_sprites/.env')
+    # 1) variable de entorno (así funciona en el contenedor de producción, que
+    #    no tiene el .env hermano del workspace) · 2) el .env de generate_sprites
+    #    (flujo de desarrollo local).
+    env_key = os.environ.get('GOOGLE_API_KEY')
+    if env_key:
+        return env_key.strip()
+    try:
+        with open(os.path.abspath(ENV_PATH)) as f:
+            for line in f:
+                if line.startswith('GOOGLE_API_KEY='):
+                    return line.split('=', 1)[1].strip()
+    except FileNotFoundError:
+        pass
+    raise RuntimeError('GOOGLE_API_KEY no encontrada (ni en el entorno ni en generate_sprites/.env)')
 
 
 def generate_image(client, prompt):
