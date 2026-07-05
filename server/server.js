@@ -15,6 +15,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { WebSocketServer } = require('ws');
 
@@ -551,6 +552,158 @@ function forjaCharsJson() {
   return JSON.stringify(baked.concat(extra));
 }
 
+// ============================================================
+//  LA FORJA — PAGOS (Fase 2)
+//
+//  El pago solo MINTEA un token de un solo uso (a prueba de trampas: el token
+//  nace de un pago verificado por el server, no del navegador). Flujo:
+//   1) POST /forja/orden {provider} → el server crea la orden en la pasarela y
+//      devuelve la URL de pago. La orden queda 'pendiente' en el volumen.
+//   2) el usuario paga en la pasarela y vuelve a forja.html?orden=<id>.
+//   3) el server CAPTURA/verifica el pago con la API de la pasarela; si está
+//      aprobado, mintea un token y lo guarda en la orden.
+//   4) GET /forja/orden?id=<id> devuelve el token → la Forja lo usa para crear.
+//  PayPal primero (captura al volver, sin webhook). Mercado Pago vendrá después.
+// ============================================================
+const FORJA_ORDENES_FILE = path.join(DATA_DIR, 'forja_ordenes.json');
+const FORJA_PRECIO_USD = process.env.FORJA_PRECIO_USD || '3.00';   // PayPal
+const FORJA_PRECIO_CLP = process.env.FORJA_PRECIO_CLP || '2990';   // Mercado Pago (Fase 2b)
+// URL pública para las vueltas de la pasarela (en local se sobrescribe por env)
+const FORJA_PUBLIC_URL = (process.env.FORJA_PUBLIC_URL || 'https://katana.igorv.org').replace(/\/$/, '');
+// PayPal
+const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID || '';
+const PAYPAL_SECRET = process.env.PAYPAL_SECRET || '';
+const PAYPAL_BASE = (process.env.PAYPAL_ENV === 'live')
+  ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
+
+let forjaOrdenes = forjaLoad(FORJA_ORDENES_FILE, {});   // idInterno → { provider, status, extId, token, monto, moneda, creado }
+function forjaGuardaOrdenes() {
+  // poda: conserva las últimas ~200 órdenes
+  const ids = Object.keys(forjaOrdenes).sort((a, b) => (forjaOrdenes[a].creado || 0) - (forjaOrdenes[b].creado || 0));
+  while (ids.length > 200) delete forjaOrdenes[ids.shift()];
+  forjaWrite(FORJA_ORDENES_FILE, forjaOrdenes);
+}
+
+// mintea un token de un solo uso y lo añade a la bolsa disponible
+function forjaMintToken() {
+  const tok = 'pg_' + crypto.randomBytes(9).toString('base64url');
+  forjaTokens.push(tok);
+  forjaWrite(FORJA_TOKENS_FILE, forjaTokens);
+  return tok;
+}
+
+// --- PayPal (Orders API v2, con fetch nativo de Node) ---
+async function paypalAuth() {
+  const cred = Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_SECRET}`).toString('base64');
+  const r = await fetch(`${PAYPAL_BASE}/v1/oauth2/token`, {
+    method: 'POST',
+    headers: { 'Authorization': `Basic ${cred}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'grant_type=client_credentials',
+  });
+  if (!r.ok) throw new Error('paypal auth ' + r.status);
+  return (await r.json()).access_token;
+}
+async function paypalCrearOrden(idInterno) {
+  const at = await paypalAuth();
+  const r = await fetch(`${PAYPAL_BASE}/v2/checkout/orders`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${at}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      intent: 'CAPTURE',
+      purchase_units: [{
+        amount: { currency_code: 'USD', value: FORJA_PRECIO_USD },
+        description: 'KATANA FIGHT — crear tu guerrero (La Forja)',
+      }],
+      application_context: {
+        brand_name: 'KATANA FIGHT',
+        user_action: 'PAY_NOW',
+        return_url: `${FORJA_PUBLIC_URL}/forja.html?orden=${idInterno}`,
+        cancel_url: `${FORJA_PUBLIC_URL}/forja.html?cancelado=1`,
+      },
+    }),
+  });
+  const d = await r.json();
+  if (!r.ok || !d.id) throw new Error('paypal crear ' + r.status + ' ' + JSON.stringify(d).slice(0, 200));
+  const approve = (d.links || []).find(l => l.rel === 'approve');
+  return { extId: d.id, url: approve && approve.href };
+}
+async function paypalCapturar(extId) {
+  const at = await paypalAuth();
+  const r = await fetch(`${PAYPAL_BASE}/v2/checkout/orders/${extId}/capture`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${at}`, 'Content-Type': 'application/json' },
+  });
+  const d = await r.json();
+  return { ok: r.ok && d.status === 'COMPLETED', status: d.status, raw: d };
+}
+
+// POST /forja/orden {provider} → crea la orden y devuelve la URL de pago
+function postForjaOrden(req, res) {
+  let body = '';
+  req.on('data', ch => { body += ch; if (body.length > 2048) req.destroy(); });
+  req.on('end', async () => {
+    let m; try { m = JSON.parse(body || '{}'); } catch (e) { m = {}; }
+    const provider = m.provider;
+    const idInterno = 'o_' + Date.now().toString(36) + crypto.randomBytes(4).toString('hex');
+    try {
+      if (provider === 'paypal') {
+        if (!PAYPAL_CLIENT_ID) { res.writeHead(503, CORS_JSON); res.end('{"ok":false,"error":"PayPal no configurado"}'); return; }
+        const { extId, url } = await paypalCrearOrden(idInterno);
+        forjaOrdenes[idInterno] = { provider, status: 'pendiente', extId, token: null, monto: FORJA_PRECIO_USD, moneda: 'USD', creado: Date.now() };
+        forjaGuardaOrdenes();
+        res.writeHead(200, CORS_JSON); res.end(JSON.stringify({ ok: true, id: idInterno, url }));
+        return;
+      }
+      // proveedor de PRUEBA (solo DEV): mintea al instante, sin pasarela
+      if (provider === 'fake' && DEV) {
+        const token = forjaMintToken();
+        forjaOrdenes[idInterno] = { provider, status: 'pagado', extId: null, token, monto: '0', moneda: 'TEST', creado: Date.now() };
+        forjaGuardaOrdenes();
+        res.writeHead(200, CORS_JSON); res.end(JSON.stringify({ ok: true, id: idInterno, url: `${FORJA_PUBLIC_URL}/forja.html?orden=${idInterno}` }));
+        return;
+      }
+      res.writeHead(400, CORS_JSON); res.end('{"ok":false,"error":"proveedor no soportado"}');
+    } catch (e) {
+      console.error(new Date().toISOString(), 'forja orden error:', e.message);
+      res.writeHead(502, CORS_JSON); res.end('{"ok":false,"error":"no se pudo crear la orden de pago"}');
+    }
+  });
+}
+
+// POST /forja/paypal/capturar {orden} → captura el pago y mintea el token
+function postForjaPaypalCapturar(req, res) {
+  let body = '';
+  req.on('data', ch => { body += ch; if (body.length > 2048) req.destroy(); });
+  req.on('end', async () => {
+    let m; try { m = JSON.parse(body || '{}'); } catch (e) { m = {}; }
+    const ord = forjaOrdenes[m.orden];
+    if (!ord || ord.provider !== 'paypal') { res.writeHead(404, CORS_JSON); res.end('{"ok":false,"error":"orden desconocida"}'); return; }
+    if (ord.status === 'pagado' && ord.token) { res.writeHead(200, CORS_JSON); res.end(JSON.stringify({ ok: true, token: ord.token })); return; }
+    try {
+      const cap = await paypalCapturar(ord.extId);
+      if (!cap.ok) { res.writeHead(402, CORS_JSON); res.end(JSON.stringify({ ok: false, error: 'pago no aprobado (' + cap.status + ')' })); return; }
+      ord.token = forjaMintToken();
+      ord.status = 'pagado';
+      forjaGuardaOrdenes();
+      console.log(new Date().toISOString(), `forja: pago PayPal capturado (orden ${m.orden})`);
+      res.writeHead(200, CORS_JSON); res.end(JSON.stringify({ ok: true, token: ord.token }));
+    } catch (e) {
+      console.error(new Date().toISOString(), 'forja capturar error:', e.message);
+      res.writeHead(502, CORS_JSON); res.end('{"ok":false,"error":"no se pudo verificar el pago"}');
+    }
+  });
+}
+
+// GET /forja/orden?id= → estado de la orden (y el token si ya se pagó)
+function forjaOrdenEstado(req, res) {
+  let id = '';
+  try { id = new URL(req.url, 'http://x').searchParams.get('id') || ''; } catch (e) {}
+  const ord = forjaOrdenes[id];
+  if (!ord) { res.writeHead(404, CORS_JSON); res.end('{"ok":false}'); return; }
+  res.writeHead(200, CORS_JSON);
+  res.end(JSON.stringify({ ok: true, status: ord.status, token: ord.status === 'pagado' ? ord.token : null }));
+}
+
 function commentsPage() {
   const items = comentarios.slice().reverse().map(c => {
     const fecha = new Date(c.fecha).toLocaleDateString('es-CL',
@@ -672,6 +825,10 @@ const httpServer = http.createServer((req, res) => {
     res.end(commentsPage());
     return;
   }
+  // ---- La Forja: pagos (Fase 2) ----
+  if (p === '/forja/orden' && req.method === 'POST') { postForjaOrden(req, res); return; }
+  if (p === '/forja/orden') { forjaOrdenEstado(req, res); return; }
+  if (p === '/forja/paypal/capturar' && req.method === 'POST') { postForjaPaypalCapturar(req, res); return; }
   // ---- La Forja: crear personaje pagado (habilitado también en producción) ----
   if (p === '/forja/crear' && req.method === 'POST') { postForjaCrear(req, res); return; }
   if (p === '/forja/estado') { forjaEstado(req, res); return; }

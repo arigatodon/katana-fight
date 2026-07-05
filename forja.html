@@ -38,6 +38,17 @@
     cursor: pointer; }
   .forjar:disabled { background: #3a2a2a; border-color: #554; color: #887; cursor: not-allowed; }
   .forjar:not(:disabled):hover { background: #c94040; }
+  .pagar { display: block; width: 100%; margin: 6px 0; padding: 13px; font-family: inherit; font-size: 15px;
+    cursor: pointer; border: 1px solid #555; letter-spacing: 1px; }
+  .pagar.paypal { background: #ffc439; color: #003087; border-color: #e0a800; font-weight: bold; }
+  .pagar.paypal:hover { background: #ffd158; }
+  .pagar.mp { background: #2a2a3a; color: #8a8aa0; }
+  .pagar:disabled { cursor: not-allowed; opacity: 0.6; }
+  .tokManual { margin-top: 10px; text-align: center; }
+  .tokManual a { color: #9ad0e8; font-size: 12px; text-decoration: none; }
+  #pagoMsg { text-align: center; font-size: 13px; margin-bottom: 8px; }
+  #pagoMsg.ok { color: #6ad06a; }
+  #pagoMsg.err { color: #e05a4a; }
   #estado { margin-top: 14px; font-size: 13px; min-height: 20px; text-align: center; }
   #estado.err { color: #e05a4a; }
   #estado.ok { color: #6ad06a; }
@@ -85,11 +96,23 @@
   </div>
 
   <div class="card">
-    <h2>3 · Forjar <span class="precio">· $3</span></h2>
-    <label>Código de creación (token)</label>
-    <input type="text" id="token" placeholder="lo recibes al pagar">
-    <div class="hint">Cada código crea un guerrero. La generación tarda ~1–2 min (dibuja 3 piezas).</div>
+    <h2>3 · Pagar y forjar <span class="precio">· $3</span></h2>
+    <div id="pagoMsg"></div>
+    <div id="pagos">
+      <button class="pagar paypal" id="payPaypal">Pagar con PayPal · USD $3</button>
+      <button class="pagar mp" id="payMp" disabled title="pronto">Mercado Pago · pronto</button>
+      <div class="hint">Al pagar recibes un código y vuelves aquí a forjar tu guerrero.
+        Guardamos tu diseño mientras pagas.</div>
+      <div class="tokManual">
+        <a href="#" id="verToken">¿ya tienes un código?</a>
+        <div id="tokBox" style="display:none">
+          <label>Código de creación</label>
+          <input type="text" id="token" placeholder="pega tu código">
+        </div>
+      </div>
+    </div>
     <button class="forjar" id="forjar" disabled>FORJAR GUERRERO</button>
+    <div class="hint" style="text-align:center">La generación tarda ~1–2 min (dibuja 3 piezas).</div>
     <div id="estado"></div>
     <div class="prev" id="prev"></div>
   </div>
@@ -153,6 +176,76 @@ function actualizarBoton() {
 }
 ['nombre', 'desc', 'token'].forEach(id =>
   document.getElementById(id).addEventListener('input', actualizarBoton));
+
+// ---- Pago ----
+const pagoMsg = document.getElementById('pagoMsg');
+
+// el diseño solo necesita aspecto + 120 puntos (el token llega al pagar)
+function disenoListo() {
+  const nombre = document.getElementById('nombre').value.trim();
+  const desc = document.getElementById('desc').value.trim();
+  return suma() === BUDGET && nombre.length >= 2 && desc.length >= 6;
+}
+
+// el redirect a la pasarela recarga la página: guardamos/restauramos el diseño
+const CAMPOS = ['nombre', 'kanji', 'desc', 'accent'];
+function guardarDiseno() {
+  const d = { stats: val };
+  CAMPOS.forEach(id => d[id] = document.getElementById(id).value);
+  try { localStorage.setItem('forjaDiseno', JSON.stringify(d)); } catch (e) {}
+}
+function restaurarDiseno() {
+  let d; try { d = JSON.parse(localStorage.getItem('forjaDiseno')); } catch (e) {}
+  if (!d) return;
+  CAMPOS.forEach(id => { if (d[id] != null) document.getElementById(id).value = d[id]; });
+  if (d.stats) STATS.forEach(([k]) => {
+    if (d.stats[k] != null) { val[k] = d.stats[k]; const s = document.getElementById('s_' + k); if (s) s.value = val[k]; }
+  });
+  pintar();
+}
+
+// mostrar el campo de código manual (para dueño/pruebas o si ya se tiene uno)
+document.getElementById('verToken').addEventListener('click', e => {
+  e.preventDefault();
+  document.getElementById('tokBox').style.display = 'block';
+});
+
+document.getElementById('payPaypal').addEventListener('click', async () => {
+  if (!disenoListo()) { pagoMsg.className = 'err'; pagoMsg.textContent = 'Completa el aspecto y reparte los 120 puntos antes de pagar.'; return; }
+  pagoMsg.className = ''; pagoMsg.textContent = 'Redirigiendo a PayPal…';
+  guardarDiseno();
+  try {
+    const d = await (await fetch(SERVER + '/forja/orden', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: 'paypal' }),
+    })).json();
+    if (!d.ok || !d.url) throw new Error(d.error || 'no se pudo iniciar el pago');
+    location.href = d.url;
+  } catch (e) { pagoMsg.className = 'err'; pagoMsg.textContent = '✖ ' + e.message; }
+});
+
+// al volver de la pasarela (?orden=): captura el pago y trae el token
+async function manejarRetorno() {
+  const q = new URLSearchParams(location.search);
+  if (q.get('cancelado')) { pagoMsg.className = 'err'; pagoMsg.textContent = 'Pago cancelado. Puedes intentarlo de nuevo.'; return; }
+  const orden = q.get('orden');
+  if (!orden) return;
+  restaurarDiseno();
+  pagoMsg.className = ''; pagoMsg.textContent = 'Confirmando el pago…';
+  try {
+    let d = await (await fetch(SERVER + '/forja/paypal/capturar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orden }),
+    })).json();
+    if (!d.ok) d = await (await fetch(SERVER + '/forja/orden?id=' + encodeURIComponent(orden))).json();
+    if (d.ok && d.token) {
+      document.getElementById('tokBox').style.display = 'block';
+      document.getElementById('token').value = d.token;
+      pagoMsg.className = 'ok'; pagoMsg.textContent = '✔ Pago confirmado. ¡Dale a FORJAR GUERRERO!';
+      actualizarBoton();
+    } else {
+      pagoMsg.className = 'err'; pagoMsg.textContent = '✖ ' + (d.error || 'no se pudo confirmar el pago');
+    }
+  } catch (e) { pagoMsg.className = 'err'; pagoMsg.textContent = '✖ ' + e.message; }
+}
 
 let forjando = false;
 const est = document.getElementById('estado');
@@ -220,6 +313,7 @@ function mostrarPiezas(parts) {
 }
 
 pintar();
+manejarRetorno();
 </script>
 </body>
 </html>
