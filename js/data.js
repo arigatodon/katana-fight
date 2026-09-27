@@ -31,6 +31,90 @@ const KAMAE = [
     windupMul: 0.70, dmgMul: 0.75, vsGuardia: 'pierde', neutraliza: 1, sweep: true },
 ];
 
+// ---------------- Estilos de corte (ryū) ----------------
+// Cada guerrero corta a SU manera, y todo vive aquí como datos:
+//  · cadena: cortes encadenables. [0] es la apertura (sale de tu kamae); los
+//    siguientes se lanzan pulsando ataque DURANTE la recuperación de un corte
+//    que tocó acero o carne (al aire no encadena). Cada eslabón fija su línea
+//    (0 alta · 1 media · 2 baja: la guardia solo cubre una, así que la cadena
+//    es un juego de lectura), su preparación (wind × windup) y su daño (dmg).
+//  · remate: lo que hace el ÚLTIMO corte de la cadena (o el único):
+//      'onda' — el tajo revienta el suelo: muele postura y tumba a quien pise
+//               tierra MÁS ALLÁ de la hoja (saltar la esquiva; la guardia la amortigua)
+//      'giro' — corte en giro: alcanza también a la espalda y llega más lejos
+//      'nuki' — corte atravesando: cruza al rival y termina a su espalda
+//      'alza' — corte ascendente: lanza al rival por los aires
+//  · kaeshi: tras un parry, un bloqueo o una neutralización, el siguiente corte
+//    sale como contragolpe (返し): mucho más rápido y más fuerte.
+//  · trazo: color/grosor de la estela y sus partículas (solo visual, render.js).
+// Los estilos cambian la simulación: tocarlos exige subir GAME_VER.
+const ESTILOS = {
+  ronin:    { name: 'KESA-GIRI', kanji: '袈裟斬', desc: 'tajo diagonal y un revés que barre',
+              cadena: [{}, { linea: 2, wind: 0.62, dmg: 0.50 }],
+              trazo: { color: '#fbf6ec', borde: '#c03434', ancho: 1.0, fx: 'chispa' } },
+  maestro:  { name: 'KAESHI-WAZA', kanji: '返し技', desc: 'un solo corte, pero tras parar devuelve al instante',
+              cadena: [{}], kaeshi: true,
+              trazo: { color: '#f4e8b0', borde: '#b89030', ancho: 0.7, fx: 'oro' } },
+  bandido:  { name: 'RANBU', kanji: '乱舞', desc: 'ráfaga salvaje de tres cortes: medio, alto, bajo',
+              cadena: [{}, { linea: 0, wind: 0.60, dmg: 0.50 }, { linea: 2, wind: 0.55, dmg: 0.45 }],
+              trazo: { color: '#ffb060', borde: '#d0501a', ancho: 1.25, fx: 'brasa' } },
+  monja:    { name: 'MAI-GIRI', kanji: '舞斬', desc: 'danza: el segundo corte gira y alcanza la espalda',
+              cadena: [{}, { linea: 1, wind: 0.75, dmg: 0.65 }], remate: 'giro',
+              trazo: { color: '#ffd8f0', borde: '#b060a0', ancho: 1.0, fx: 'petalo' } },
+  nino:     { name: 'TSUBAME', kanji: '燕返', desc: 'golondrina: tres cortes cortos y veloces',
+              cadena: [{}, { linea: 0, wind: 0.48, dmg: 0.38 }, { linea: 2, wind: 0.48, dmg: 0.38 }],
+              trazo: { color: '#fff4b0', borde: '#5a98c0', ancho: 0.65, fx: 'chispa' } },
+  gigante:  { name: 'KABUTO-WARI', kanji: '兜割', desc: 'parte cascos: su tajo revienta el suelo',
+              cadena: [{}], remate: 'onda',
+              trazo: { color: '#ffd890', borde: '#8a4a1a', ancho: 1.7, fx: 'polvo' } },
+  cazadora: { name: 'HAYATE', kanji: '疾風', desc: 'ventarrón: el segundo corte sube y lanza al aire',
+              cadena: [{}, { linea: 0, wind: 0.60, dmg: 0.70 }], remate: 'alza',
+              trazo: { color: '#e0ffb0', borde: '#5a9a2a', ancho: 0.8, fx: 'hoja' } },
+  espectro: { name: 'KAGERŌ', kanji: '陽炎', desc: 'espejismo: el segundo corte atraviesa al rival',
+              cadena: [{}, { linea: 1, wind: 0.70, dmg: 0.70 }], remate: 'nuki',
+              trazo: { color: '#d0fffa', borde: '#40b8b0', ancho: 0.9, fx: 'bruma' } },
+  // yokai (jefes)
+  gallina:  { name: 'TENGU-OTOSHI', kanji: '天狗落', desc: 'cae como el cuervo: el segundo corte lanza al cielo',
+              cadena: [{}, { linea: 0, wind: 0.70, dmg: 0.60 }], remate: 'alza',
+              trazo: { color: '#ffc0a0', borde: '#e03020', ancho: 1.3, fx: 'pluma' } },
+  sapo:     { name: 'KAPPA-NAMI', kanji: '河童波', desc: 'su tajo levanta una ola del suelo',
+              cadena: [{}], remate: 'onda',
+              trazo: { color: '#d0fff0', borde: '#3a9a70', ancho: 1.5, fx: 'agua' } },
+  mapache:  { name: 'BAKE-GIRI', kanji: '化斬', desc: 'engaño: abre alto o medio y remata abajo',
+              cadena: [{}, { linea: 2, wind: 0.65, dmg: 0.58 }],
+              trazo: { color: '#ffe0a0', borde: '#b07020', ancho: 1.3, fx: 'hoja' } },
+  tiburon:  { name: 'ŌNAMI', kanji: '大波', desc: 'gran ola: su tajo hace temblar la tierra',
+              cadena: [{}], remate: 'onda',
+              trazo: { color: '#d8f4ff', borde: '#2a6aa0', ancho: 1.5, fx: 'agua' } },
+  abuela:   { name: 'YAMA-GAESHI', kanji: '山返', desc: 'lentísima, pero tras parar devuelve letal',
+              cadena: [{}], kaeshi: true,
+              trazo: { color: '#f0d8ff', borde: '#8050a0', ancho: 1.3, fx: 'bruma' } },
+};
+// estilo por defecto (guerreros del editor / LA FORJA): un corte y un revés medio
+const ESTILO_BASE = { name: 'ITTŌ', kanji: '一刀', desc: 'un tajo y un revés a media altura',
+  cadena: [{}, { linea: 1, wind: 0.65, dmg: 0.55 }],
+  trazo: { color: '#f4f4f8', borde: '#8a96ac', ancho: 1.0, fx: 'chispa' } };
+function estiloDe(ch) {
+  if (ch && ch.estilo && ESTILOS[ch.estilo]) return ESTILOS[ch.estilo];   // un guerrero puede tomar otro ryū
+  return (ch && ESTILOS[ch.id]) || ESTILO_BASE;
+}
+// texto de la cadena para el pergamino (selección y dojo): "tu kamae → bajo"
+const LINEA_TXT = ['上 alto', '中 medio', '下 bajo'];
+const REMATE_TXT = {
+  onda: 'el tajo revienta el suelo',
+  giro: 'gira y alcanza la espalda',
+  nuki: 'atraviesa al rival',
+  alza: 'lanza al aire',
+};
+function cadenaTexto(e) {
+  let s = e.cadena.map((c, i) => i === 0 ? 'tu kamae' : LINEA_TXT[c.linea]).join(' → ');
+  if (e.remate) s += ' · remate: ' + REMATE_TXT[e.remate];
+  if (e.kaeshi) s += ' · 返し contragolpe tras parar';
+  return s;
+}
+// ventana del contragolpe (kaeshi) y su efecto
+const KAESHI_T = 0.75, KAESHI_WIND = 0.45, KAESHI_DMG = 1.25;
+
 // Estadísticas ocultas: corte, postura, agilidad, engano, reflejos, espiritu (0-40)
 // kamaeFav: línea favorita del personaje (0 jōdan · 1 chūdan · 2 gedan) —
 // sus cortes desde esa kamae salen algo más rápidos y fuertes (deriveAttrs)

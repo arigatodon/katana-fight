@@ -40,8 +40,10 @@ function updatePlayer(p, foe, isP1, dt) {
             x1: p.x + p.facing * 14, y1: cy + arco[0],
             x2: p.x + p.facing * (p.reach + 14), y2: cy + arco[1],
             life: 0.22, maxLife: 0.22,
+            owner: p,       // el render lo omite si dibuja la estela real de la hoja
           });
           p.vx = p.facing * 200;
+          remateAlSalir(p, foe);   // nuki (cruza) · onda (revienta el suelo)
           break;
         }
         case PSTATE.ATTACK:
@@ -95,6 +97,8 @@ function updatePlayer(p, foe, isP1, dt) {
     if (inp.attack && !p.attackHeld) { p.attackThrust = !!inp.down; startAttack(p); }
     else if (guardHold) startGuard(p);
     else if (feintTap) startFeint(p);
+  } else if (p.state === PSTATE.RECOVER && inp.attack && !p.attackHeld && puedeEncadenar(p)) {
+    startChain(p);   // siguiente eslabón de la cadena del estilo (combat.js)
   } else if (p.state === PSTATE.RECOVER || p.state === PSTATE.STAGGER || p.state === PSTATE.HITSTUN) {
     p.vx *= Math.pow(0.001, dt);
   } else if (p.state === PSTATE.GUARD) {
@@ -106,6 +110,8 @@ function updatePlayer(p, foe, isP1, dt) {
     p.vx *= Math.pow(0.001, dt);
   }
   if (p.slideT > 0) { p.slideT -= dt; if (p.slideT <= 0 && p.state === PSTATE.IDLE) p.vx *= 0.3; }
+  if (p.kaeshiT > 0) p.kaeshiT -= dt;   // ventana del contragolpe (estilos con kaeshi)
+  if (p.nukiT > 0) p.nukiT -= dt;       // corte atravesando: sin choque de cuerpos
   p.attackHeld = inp.attack;
   p.feintHeld = inp.feint;
   p.jumpHeld = inp.jump;
@@ -236,7 +242,7 @@ function updatePlayer(p, foe, isP1, dt) {
           vy: -360 - Math.random() * 320,
           life: 0.7 + Math.random() * 0.6, maxLife: 1.3,
           color: ['#c01818', '#8e0e0e', '#e03030', '#a01414'][Math.floor(Math.random() * 4)],
-          size: 2.5 + Math.random() * 3.5, gravity: true,
+          size: 2.5 + Math.random() * 3.5, gravity: true, blood: true,
         });
       }
     }
@@ -294,7 +300,20 @@ function update(dt) {
     if (pa.gravity) pa.vy += 900 * sdt;
     pa.x += pa.vx * sdt;
     pa.y += pa.vy * sdt;
-    if (pa.gravity && pa.y > GROUND + 6) { pa.y = GROUND + 6; pa.vy *= -0.3; pa.vx *= 0.6; }
+    if (pa.gravity && pa.y > GROUND + 6) {
+      // la sangre que cae deja mancha (visual: no entra en la simulación)
+      if (pa.blood && !pa.landed && decals.length < 140) {
+        decals.push({ x: pa.x, y: GROUND + 4 + Math.random() * 6, r: pa.size * (1.2 + Math.random()), a: 0.75 });
+      }
+      pa.landed = true;
+      pa.y = GROUND + 6; pa.vy *= -0.3; pa.vx *= 0.6;
+    }
+  }
+  for (let i = shockwaves.length - 1; i >= 0; i--) {
+    const sw = shockwaves[i];
+    sw.life -= sdt;
+    sw.r += (sw.max - sw.r) * Math.min(1, sdt * 9);
+    if (sw.life <= 0) shockwaves.splice(i, 1);
   }
   for (let i = slashTrails.length - 1; i >= 0; i--) {
     slashTrails[i].life -= sdt;
@@ -353,6 +372,7 @@ function update(dt) {
 // —solo usa posiciones y escala, sin Math.random— para no romper el lockstep.
 function resolveBodyCollision() {
   if (p1.state === PSTATE.DEAD || p2.state === PSTATE.DEAD) return;
+  if (p1.nukiT > 0 || p2.nukiT > 0) return;   // corte atravesando: cruza el cuerpo
   // si hay separación vertical clara (uno saltó), se puede pasar por encima
   if (Math.abs(p1.y - p2.y) > 46) return;
   const minGap = 18 * (p1.scale || 1) + 18 * (p2.scale || 1);

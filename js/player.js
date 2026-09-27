@@ -19,6 +19,10 @@ function makePlayer(x, facing, char, isCPU, name, virtud, statBoost) {
     vida: VIDA_MAX, postura: 0,
     kamae: 1, atkKamae: 1,          // línea de kenjutsu actual y la del corte en curso
     sheathed: true, iai: false,     // katana envainada: el primer corte es un iai
+    estilo: estiloDe(char),         // ryū: cadena de cortes y remate propios (data.js)
+    chainIdx: 0, chainSerial: 0,    // eslabón de la cadena en curso · nº de corte (para el render)
+    kaeshiT: 0, kaeshi: false,      // ventana de contragolpe tras parar · el corte actual lo es
+    nukiT: 0,                       // corte atravesando: ignora el choque de cuerpos
     wins: 0, isCPU,
     onGround: true, jumpsUsed: 0,
     deathT: 0, guardT: 0,

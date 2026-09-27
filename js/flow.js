@@ -109,6 +109,7 @@ function confirmChoose() {
   const c = choosePool()[chooseSel];
   sfxConfirm();
   if (netActive()) { netChoose(c); return; }
+  if (modoDojo) { dojoComenzar(c); return; }   // dojo: directo a practicar
   if (vsCPU) {
     playerChar = c;
     pickVirtudes();
@@ -236,9 +237,12 @@ function resetRound() {
     p.desespUsed = false;
     p.feintHoldT = 0;
     p.afterimages = [];
+    p.chainIdx = 0; p.chainTouch = false;   // estilo: la cadena y el kaeshi no cruzan rondas
+    p.kaeshiT = 0; p.kaeshi = false; p.nukiT = 0;
   }
   ultimaEjecucion = false;    // se marca en el kill de esta ronda (gesta VERDUGO)
   particles = []; slashTrails = []; floaters = []; projectiles = [];
+  shockwaves = []; decals = [];
   cracks = []; bellTimer = 3 + rnd() * 4;
   if (stage.id === 'volcan') spawnCracks();
   timeScale = 1; slowmoTimer = 0; shake = 0; flashTimer = 0;

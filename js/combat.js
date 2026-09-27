@@ -30,6 +30,9 @@ function startAttack(p) {
   if (!canAct(p)) return;
   // el corte nace de la kamae del momento y queda fijado para todo el golpe
   p.atkKamae = p.kamae;
+  p.chainIdx = 0;          // apertura de la cadena del estilo (ESTILOS en data.js)
+  p.chainTouch = false;
+  p.chainSerial++;
   const K = KAMAE[p.atkKamae];
   const fav = p.kamaeFav === p.atkKamae;
   // iaijutsu: el PRIMER corte de la ronda sale de la vaina — un desenvaine
@@ -41,6 +44,79 @@ function startAttack(p) {
   p.state = PSTATE.WINDUP;
   p.stateTimer = p.windup * K.windupMul * (fav ? 0.88 : 1) * (p.iai ? 0.6 : 1);
   p.atkDmg = p.dmg * K.dmgMul * (fav ? 1.12 : 1);
+  // kaeshi (返し): quien tiene ese estilo y acaba de parar, devuelve el corte
+  // al instante — la ventana la abre tryHit al parry/bloqueo/neutralizar
+  p.kaeshi = false;
+  if (p.estilo.kaeshi && p.kaeshiT > 0) {
+    p.kaeshi = true;
+    p.kaeshiT = 0;
+    p.stateTimer *= KAESHI_WIND;
+    p.atkDmg *= KAESHI_DMG;
+    floatText(p.x, bodyCenterY(p) - 60, '返し ¡KAESHI!', '#f4e8b0', 16);
+  }
+}
+
+// ---------------- Cadenas de corte (estilo de cada guerrero) ----------------
+// último eslabón de la cadena → su remate (onda/giro/nuki/alza) o null
+function esRemate(p) { return p.chainIdx >= p.estilo.cadena.length - 1; }
+function remateDe(p) { return esRemate(p) ? (p.estilo.remate || null) : null; }
+
+// ¿puede lanzar el siguiente eslabón? solo desde la recuperación de un corte
+// que TOCÓ (golpe o bloqueo), y si al estilo le quedan eslabones
+function puedeEncadenar(p) {
+  return p.state === PSTATE.RECOVER && p.chainTouch && !esRemate(p) && roundStartTimer <= 0;
+}
+
+function startChain(p) {
+  const link = p.estilo.cadena[p.chainIdx + 1];
+  p.chainIdx++;
+  p.chainSerial++;
+  p.chainTouch = false;
+  p.atkKamae = link.linea != null ? link.linea : p.kamae;   // cada eslabón fija su línea
+  p.iai = false; p.kaeshi = false; p.attackThrust = false;
+  p.state = PSTATE.WINDUP;
+  p.stateTimer = p.windup * (link.wind || 1);
+  p.atkDmg = p.dmg * KAMAE[p.atkKamae].dmgMul * (link.dmg || 1);
+}
+
+// arranque del tajo (WINDUP → ATTACK): efectos de remate que salen con el
+// acero, antes de resolver el golpe (update.js lo llama en la transición)
+function remateAlSalir(p, foe) {
+  const r = remateDe(p);
+  if (r === 'nuki') {
+    // corte atravesando: embestida que cruza el cuerpo del rival
+    p.vx = p.facing * 700;
+    p.nukiT = 0.24;
+  } else if (r === 'onda') {
+    ondaDeChoque(p, foe);
+  }
+}
+
+// el tajo de los gigantes revienta el suelo: la onda alcanza MÁS ALLÁ
+// de la hoja (dentro del alcance manda el corte, con su triángulo intacto).
+// Saltar la esquiva; la guardia la amortigua.
+function ondaDeChoque(p, foe) {
+  const R = p.reach * 1.8;
+  const ox = p.x + p.facing * p.reach * 0.75;
+  shockwaves.push({ x: ox, y: p.y, r: 8, max: R, life: 0.5, maxLife: 0.5, color: p.estilo.trazo.borde });
+  shake = Math.max(shake, 11);
+  sfxBreak();
+  if (!foe || foe.state === PSTATE.DEAD || !foe.onGround) return;
+  const dist = Math.abs(foe.x - p.x);
+  if (dist > R || dist <= p.reach + 16) return;
+  if ((foe.x - p.x) * p.facing < 0) return;          // la onda va hacia delante
+  if (foe.state === PSTATE.GUARD) {
+    foe.postura = Math.max(0, foe.postura - 7);
+  } else if (foe.state !== PSTATE.HITSTUN && foe.state !== PSTATE.STAGGER && foe.state !== PSTATE.EXPOSED) {
+    foe.postura = Math.max(0, foe.postura - 12);
+    foe.state = PSTATE.HITSTUN;
+    foe.stateTimer = 0.26;
+    foe.vx = p.facing * 140;
+    foe.vy = -170;
+    foe.onGround = false;
+    floatText(foe.x, bodyCenterY(foe) - 44, '¡TEMBLOR!', '#e8c050', 16);
+  }
+  checkPostureBreak(foe);
 }
 
 // iai fallido: el desenvaine al aire o cortado en seco deja al samurái
@@ -149,6 +225,12 @@ function applyDamage(def, att, dmgRaw) {
   def.vx = att.facing * (barrida ? 260 : 330);
   def.vy = barrida ? -320 : -140;
   if (barrida) def.onGround = false;
+  if (remateDe(att) === 'alza') {        // corte ascendente: lanza al aire
+    def.stateTimer = 0.5;
+    def.vx = att.facing * 190;
+    def.vy = -480;
+    def.onGround = false;
+  }
   att.stats.hits++;
   def.stats.taken += dmg;
   if (att.char.steal) {
@@ -177,6 +259,7 @@ function checkPostureBreak(p) {
 
 function kill(victim, killer, ejecucion) {
   if (victim.state === PSTATE.DEAD) return;
+  if (modoDojo) { dojoRevivir(victim, ejecucion); return; }   // en el dojo nadie muere
   ultimaEjecucion = !!ejecucion;   // gesta VERDUGO: el duelo se ganó rompiendo la postura
   victim.state = PSTATE.DEAD;
   victim.stateTimer = 0;
@@ -204,6 +287,7 @@ function kill(victim, killer, ejecucion) {
 // puente: caer implica derrota
 function fallDeath(victim) {
   if (victim.state === PSTATE.DEAD) return;
+  if (modoDojo) { dojoRevivir(victim, false); return; }
   const killer = victim === p1 ? p2 : p1;
   victim.state = PSTATE.DEAD;
   victim.vida = 0;
@@ -219,10 +303,13 @@ function tryHit(att, def) {
   if (att.hitDone) return;
   const dist = Math.abs(att.x - def.x);
   const facingTarget = (def.x - att.x) * att.facing > 0;
-  if (!facingTarget) return;
+  const giro = remateDe(att) === 'giro';     // el corte en giro alcanza la espalda
+  if (!facingTarget && !giro) return;
   const heightDiff = Math.abs(bodyCenterY(att) - bodyCenterY(def));
-  if (dist > att.reach + 16 || heightDiff > 58 * Math.max(att.scale, def.scale)) return;
+  const reach = att.reach * (giro ? 1.15 : 1);
+  if (dist > reach + 16 || heightDiff > 58 * Math.max(att.scale, def.scale)) return;
   att.hitDone = true;
+  att.chainTouch = true;       // tocó acero o carne: la cadena puede seguir
 
   // línea del corte y su regla (matriz KAMAE en data.js)
   const K = KAMAE[att.atkKamae != null ? att.atkKamae : 1];
@@ -239,6 +326,7 @@ function tryHit(att, def) {
       att.vx = -att.facing * 300;
       def.postura = Math.min(def.posMax, def.postura + 12);
       def.stats.parries++;
+      def.kaeshiT = KAESHI_T;
       sfxParry();
       flashTimer = 0.15;
       timeScale = 0.3; slowmoTimer = 0.22;
@@ -254,6 +342,7 @@ function tryHit(att, def) {
       att.stateTimer = 0.55 * att.staggerMul;
       att.vx = -att.facing * 260;
       def.stats.blocks++;
+      def.kaeshiT = KAESHI_T;
       sfxBlock();
       shake = 5;
       spawnSparks((att.x + def.x) / 2, def.y - 16 * def.scale);
@@ -273,6 +362,7 @@ function tryHit(att, def) {
     // guardia aún más, pero no te deja vendido (presionaste, no fallaste)
     if (att.iai) { def.postura -= dmgCorte * 0.5; att.iai = false; }
     def.stats.blocks++;
+    def.kaeshiT = KAESHI_T;
     def.vx = att.facing * 200;
     sfxBlock();
     shake = 5;
@@ -293,6 +383,7 @@ function tryHit(att, def) {
     att.stateTimer = 0.5 * att.staggerMul;
     att.vx = -att.facing * 240;
     def.postura = Math.max(0, def.postura - 4);
+    def.kaeshiT = KAESHI_T;
     sfxClash();
     shake = 6;
     timeScale = 0.5; slowmoTimer = 0.12;

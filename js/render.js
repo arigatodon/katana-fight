@@ -139,6 +139,351 @@ function drawPart(img, anchor, cx, cy, targetH, targetW, rot) {
   ctx.restore();
 }
 
+// ---------------- Animación del recorte (poses, estela, efectos) ----------------
+//  TODO lo de esta sección es VISUAL: la memoria de animación vive en un
+//  WeakMap por objeto luchador y corre con reloj real (performance.now), así
+//  que la simulación, el online, los replays y el smoke no se enteran.
+//  La pose sale de una función pura (estado + progreso del estado + estilo), y
+//  eso permite dibujar la estela del corte EXACTA: se re-muestrea la trayectoria
+//  de la punta de la katana a lo largo del tajo (una media luna, no una raya).
+
+// punta de la katana dentro de cada pieza de brazos (fracción del bbox),
+// medida sobre los PNG con tools (columna opaca más a la derecha)
+const PUNTA_KATANA = {
+  abuela: [0.999, 0.233], bandido: [0.999, 0.352], cazadora: [0.999, 0.389],
+  espectro: [0.999, 0.240], gallina: [0.999, 0.231], gigante: [0.999, 0.573],
+  maestro: [0.999, 0.291], mapache: [0.998, 0.659], melena: [0.999, 0.435],
+  monja: [0.999, 0.590], nino: [0.999, 0.502], ronin: [0.999, 0.253],
+  sapo: [0.999, 0.628], tiburon: [0.999, 0.527],
+};
+function puntaDe(img) {
+  const m = img && img.src && img.src.match(/parts\/([^/]+)\/[^/]+$/);
+  return (m && PUNTA_KATANA[m[1]]) || [0.99, 0.3];
+}
+
+// forma del tajo por estilo (cómo se MUEVE, no qué hace): amplitud de la
+// preparación, sobreimpulso al final del corte, arremetida y floritura
+const FORMA_CORTE = {
+  ronin:    { amp: 1.00, over: 0.18, lunge: 1.0, flor: 'chiburi' },
+  maestro:  { amp: 0.70, over: 0.06, lunge: 0.7, flor: 'chiburi' },
+  bandido:  { amp: 1.30, over: 0.38, lunge: 1.3, flor: 'giro' },
+  monja:    { amp: 1.05, over: 0.22, lunge: 1.0, flor: null },
+  nino:     { amp: 0.75, over: 0.14, lunge: 1.2, flor: null },
+  gigante:  { amp: 1.35, over: 0.30, lunge: 0.8, flor: null },
+  cazadora: { amp: 0.90, over: 0.20, lunge: 1.3, flor: null },
+  espectro: { amp: 1.00, over: 0.16, lunge: 1.1, flor: null },
+  gallina:  { amp: 1.25, over: 0.30, lunge: 1.0, flor: null },
+  sapo:     { amp: 1.30, over: 0.30, lunge: 0.8, flor: null },
+  mapache:  { amp: 1.20, over: 0.26, lunge: 1.0, flor: null },
+  tiburon:  { amp: 1.30, over: 0.30, lunge: 0.9, flor: null },
+  abuela:   { amp: 0.80, over: 0.10, lunge: 0.7, flor: 'chiburi' },
+};
+const FORMA_BASE = { amp: 1.0, over: 0.18, lunge: 1.0, flor: null };
+
+// ángulo del brazo armado (rad, local mirando a la derecha; negativo = hoja
+// arriba) por línea [alta, media, baja]
+const ARM_IDLE  = [-1.00, -0.30, 0.55];
+const ARM_GUARD = [-1.05, -0.45, 0.15];
+const ARM_WIND  = [-1.62, -0.98, 1.05];   // gedan: la hoja baja y atrás (barrido)
+const ARM_CUT   = [ 0.72,  0.42, -0.12];
+const ARM_REC   = [ 0.55,  0.30, 0.25];
+
+const easeOut = u => 1 - Math.pow(1 - u, 3);
+const easeInOut = u => u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+const lerp = (a, b, u) => a + (b - a) * u;
+const clamp01 = u => u < 0 ? 0 : u > 1 ? 1 : u;
+
+const animMem = new WeakMap();
+function memDe(p) {
+  let m = animMem.get(p);
+  if (!m) {
+    m = { state: p.state, dur: 0.001, serial: p.chainSerial || 0, t: 0, pose: null,
+          flash: 0, squash: 0, wasGround: p.onGround, vida: p.vida, trail: null,
+          fxSerial: -1, glintSerial: -1, dustT: 0, spin: 0 };
+    animMem.set(p, m);
+  }
+  return m;
+}
+
+// progreso 0→1 del estado actual (la duración se captura al entrar en él)
+function progresoEstado(p, m) {
+  if (p.state !== m.state || (p.chainSerial || 0) !== m.serial) {
+    m.state = p.state;
+    m.serial = p.chainSerial || 0;
+    m.dur = Math.max(0.001, p.stateTimer || 0.001);
+  }
+  if (p.state === PSTATE.GUARD) return clamp01((p.guardT || 0) / 0.2);
+  return clamp01(1 - (p.stateTimer || 0) / m.dur);
+}
+
+// ¿qué remate tiene el corte en curso? (visual: lee el estado, no lo cambia)
+function remateVisual(p) {
+  const e = p.estilo;
+  if (!e || !e.cadena) return null;
+  return (p.chainIdx || 0) >= e.cadena.length - 1 ? (e.remate || null) : null;
+}
+
+// pose del muñeco: función PURA del estado, su progreso u y el estilo
+function poseDe(p, u) {
+  const fo = FORMA_CORTE[p.char.id] || FORMA_BASE;
+  const atk = p.state === PSTATE.WINDUP || p.state === PSTATE.ATTACK || p.state === PSTATE.RECOVER;
+  const km = atk ? (p.atkKamae != null ? p.atkKamae : 1) : (p.kamae != null ? p.kamae : 1);
+  const rem = atk ? remateVisual(p) : null;
+  const thrust = !!p.attackThrust;
+  const breath = Math.sin((p.bob || 0) * 0.9);
+  const P = { arm: ARM_IDLE[km] + breath * 0.025, lean: km === 2 ? 0.10 : km === 0 ? -0.04 : 0,
+              dx: 0, crouch: km === 2 ? 0.05 : 0, legF: km === 2 ? -0.34 : km === 0 ? -0.08 : -0.16,
+              legB: km === 2 ? 0.34 : km === 0 ? 0.10 : 0.18, spin: 0, stretch: 0 };
+
+  // ángulos de la preparación y del final del tajo, según línea y estilo
+  let wA = ARM_WIND[km], cA = ARM_CUT[km];
+  if (km !== 2) wA = ARM_IDLE[km] + (wA - ARM_IDLE[km]) * fo.amp;
+  else wA += (fo.amp - 1) * 0.3;                          // gedan: la hoja cae más atrás
+  if (rem === 'alza') { wA = 1.05; cA = -1.35; }          // tajo que sube y lanza
+  if (rem === 'nuki') { wA = -0.20; cA = 0.05; }          // estocada que cruza
+  if (rem === 'onda' && km !== 2) cA = 1.05;              // el tajo remata en el suelo
+  if (thrust) { wA = -0.10; cA = 0.02; }
+  if (p.kaeshi) wA = lerp(ARM_GUARD[km], wA, 0.55);       // contragolpe: casi sin preparación
+  // el sobreimpulso sigue al tajo; en el barrido bajo es corto (que no parezca un tajo que sube)
+  const over = Math.sign(cA - wA) * fo.over * (km === 2 && rem !== 'alza' ? 0.35 : 1);
+
+  switch (p.state) {
+    case PSTATE.WINDUP: {
+      const k = easeOut(u);
+      P.arm = lerp(ARM_IDLE[km], wA, k) + (u > 0.85 ? Math.sin(u * 60) * 0.015 : 0);   // la hoja tiembla, lista
+      P.lean = lerp(P.lean, (km === 2 ? 0.05 : -0.14) * fo.amp, k);
+      P.dx = -4 * k * fo.amp;
+      P.legF = lerp(P.legF, -0.22, k); P.legB = lerp(P.legB, 0.36, k);
+      P.crouch = lerp(P.crouch, km === 2 ? 0.08 : 0.03, k);
+      if (rem === 'nuki') { P.lean = -0.05 + 0.25 * k; P.legF = -0.45 * k; P.legB = 0.5 * k; P.crouch = 0.07 * k; }
+      break;
+    }
+    case PSTATE.ATTACK: {
+      const k = easeOut(u);
+      P.arm = lerp(wA, cA + over, k);
+      P.lean = lerp(-0.12, (thrust ? 0.12 : 0.24) * Math.min(1.3, fo.lunge), k);
+      P.dx = lerp(-4, (thrust ? 26 : 16) * fo.lunge, k);
+      P.legF = lerp(-0.22, -0.62, k); P.legB = lerp(0.36, 0.58, k);
+      P.crouch = lerp(0.03, km === 2 ? 0.11 : 0.07, k);
+      P.stretch = 0.04 * (1 - u);
+      if (rem === 'giro') P.spin = u * Math.PI * 2;           // la monja gira sobre sí
+      if (rem === 'nuki') { P.dx = lerp(0, 34, k); P.lean = 0.28; P.legF = -0.7; P.legB = 0.7; P.crouch = 0.12; }
+      if (rem === 'alza') { P.lean = lerp(0.1, -0.22, k); P.crouch = lerp(0.1, 0.0, k); P.stretch = 0.08 * k; }
+      break;
+    }
+    case PSTATE.RECOVER: {
+      const k = easeInOut(u);
+      const end = cA + over;
+      P.arm = lerp(end, ARM_REC[km], k);
+      // floritura: chiburi (sacudir la sangre de la hoja) o giro de muñeca
+      if (fo.flor === 'chiburi') P.arm += Math.sin(clamp01((u - 0.35) / 0.5) * Math.PI) * 0.55;
+      if (fo.flor === 'giro') P.arm -= Math.sin(clamp01(u / 0.7) * Math.PI) * 0.9;
+      P.lean = lerp(0.24 * Math.min(1.3, fo.lunge), 0.06, k);
+      P.dx = lerp(16 * fo.lunge, 4, k);
+      P.legF = lerp(-0.62, -0.25, k); P.legB = lerp(0.58, 0.25, k);
+      P.crouch = lerp(0.07, 0.03, k);
+      if (rem === 'alza') P.arm = lerp(end, ARM_REC[0], k);
+      break;
+    }
+    case PSTATE.FEINT: {
+      const k = Math.sin(u * Math.PI);                         // amago: sube y vuelve
+      P.arm = lerp(P.arm, ARM_WIND[km === 2 ? 1 : km] * 0.8, k);
+      P.lean = lerp(P.lean, -0.12, k); P.dx = 6 * k;
+      P.legF = lerp(P.legF, -0.4, k);
+      break;
+    }
+    case PSTATE.GUARD: {
+      P.arm = ARM_GUARD[km] + Math.sin((p.bob || 0) * 3) * 0.02;
+      P.lean = -0.10; P.dx = -2;
+      P.legF = -0.18; P.legB = 0.30; P.crouch = km === 2 ? 0.07 : 0.03;
+      break;
+    }
+    case PSTATE.STAGGER:
+    case PSTATE.HITSTUN: {
+      const k = Math.sin(clamp01(u * 1.4) * Math.PI * 0.5);
+      P.arm = lerp(-0.6, 0.35, u);
+      P.lean = -0.30 * (1 - u * 0.5) - 0.05 * k;
+      P.dx = -8 * (1 - u);
+      P.legF = 0.15; P.legB = 0.35; P.crouch = 0.02;
+      break;
+    }
+    case PSTATE.EXPOSED: {
+      // postura rota: rodilla casi en tierra, hoja caída, jadeando
+      const pant = Math.sin((p.bob || 0) * 6) * 0.04;
+      P.arm = 1.05 + pant; P.lean = 0.30 + pant;
+      P.legF = -0.55; P.legB = 0.75; P.crouch = 0.12;
+      break;
+    }
+  }
+  // iai: katana envainada en reposo — brazo al costado, mano en la tsuka
+  if (p.sheathed && p.state === PSTATE.IDLE) { P.arm = 0.85 + breath * 0.02; P.lean = -0.03; }
+  // en el aire: piernas recogidas al subir, estiradas al caer
+  if (!p.onGround && p.state !== PSTATE.DEAD) {
+    const sube = (p.vy || 0) < 0;
+    P.legF = sube ? -0.62 : -0.25; P.legB = sube ? 0.30 : 0.18;
+    P.crouch = 0;
+    P.stretch += sube ? 0.05 : 0.02;
+  }
+  return P;
+}
+
+// suaviza la pose hacia el objetivo (evita saltos entre estados); el tajo
+// (ATTACK) va sin filtro para que el corte sea seco y la estela calce
+const POSE_KEYS = ['arm', 'lean', 'dx', 'crouch', 'legF', 'legB', 'stretch'];
+function suavizarPose(m, P, dt, rate) {
+  if (!m.pose || rate === Infinity) { m.pose = Object.assign({}, P); return m.pose; }
+  const a = 1 - Math.exp(-rate * dt);
+  for (const k of POSE_KEYS) m.pose[k] += (P[k] - m.pose[k]) * a;
+  m.pose.spin = P.spin;
+  return m.pose;
+}
+
+// geometría del rig para una pose: devuelve puntos en coords LOCALES (mirando
+// a la derecha, pies en 0,0) — la misma cuenta que usa el dibujo, así la estela
+// sale justo de la punta de la hoja que se ve
+function rigGeom(p, R, H, rec, P, bob, wbob) {
+  const hipY = -R.hipFrac * H + P.crouch * H;
+  const tdx = (R.torsoDX || 0) * H, tdy = (R.torsoDY || 0) * H;
+  const adx = (R.armsDX || 0) * H, ady = (R.armsDY || 0) * H;
+  const pivX = tdx, pivY = hipY + bob + wbob + tdy;
+  // el hombro va pegado al torso: gira con la inclinación alrededor de la cintura
+  const bx = R.shoulderXFrac * H + adx - pivX;
+  const by = (-R.shoulderFrac * H + P.crouch * H) + bob + wbob + ady - pivY;
+  const cl = Math.cos(P.lean), sl = Math.sin(P.lean);
+  const shX = pivX + bx * cl - by * sl, shY = pivY + bx * sl + by * cl;
+  let tipX = shX, tipY = shY;
+  const img = rec.brazos;
+  if (img && img.width) {
+    const w = R.armsWFrac * H, h = w * img.height / img.width;
+    const t = puntaDe(img);
+    const lx = (t[0] - R.armsAnchor[0]) * w, ly = (t[1] - R.armsAnchor[1]) * h;
+    const ca = Math.cos(P.arm), sa = Math.sin(P.arm);
+    tipX = shX + lx * ca - ly * sa; tipY = shY + lx * sa + ly * ca;
+  }
+  return { hipY, pivX, pivY, shX, shY, tipX, tipY };
+}
+
+// coords locales → mundo (la misma transformación que aplica drawOrigami)
+function aMundo(p, P, sx, sy, lx, ly) {
+  const f = p.facing;
+  return [p.x + f * P.dx + f * sx * lx, p.y + sy * ly];
+}
+
+// muestrea la trayectoria de la punta durante el tajo (0 → u): media luna
+function muestrearTajo(p, R, H, rec, uHasta, sx, sy) {
+  const N = 14, out = [];
+  for (let i = 0; i <= N; i++) {
+    const u = uHasta * i / N;
+    const P = poseDe(p, u);
+    const g = rigGeom(p, R, H, rec, P, 0, 0);
+    const spinX = Math.cos(P.spin || 0);
+    const tip = aMundo(p, P, sx * spinX, sy, g.tipX, g.tipY);
+    const ix = g.shX + (g.tipX - g.shX) * 0.5, iy = g.shY + (g.tipY - g.shY) * 0.5;
+    const inn = aMundo(p, P, sx * spinX, sy, ix, iy);
+    out.push([tip[0], tip[1], inn[0], inn[1]]);
+  }
+  return out;
+}
+
+// dibuja la estela: cinta que se afina hacia atrás, del color del estilo
+function drawTrail(tr, alpha) {
+  const pts = tr.pts, n = pts.length;
+  if (n < 2 || alpha <= 0) return;
+  const tz = tr.trazo;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 1; i < n; i++) {
+    const a0 = pts[i - 1], a1 = pts[i];
+    const k = i / (n - 1);                               // 0 = cola · 1 = cabeza
+    const wIn = Math.min(1, 0.25 + tz.ancho * 0.55);     // cuánto se acerca al hombro
+    const ix0 = a0[0] + (a0[2] - a0[0]) * wIn * k, iy0 = a0[1] + (a0[3] - a0[1]) * wIn * k;
+    const ix1 = a1[0] + (a1[2] - a1[0]) * wIn * k, iy1 = a1[1] + (a1[3] - a1[1]) * wIn * k;
+    ctx.globalAlpha = alpha * (0.15 + 0.75 * k * k);
+    ctx.fillStyle = tz.color;
+    ctx.beginPath();
+    ctx.moveTo(a0[0], a0[1]); ctx.lineTo(a1[0], a1[1]); ctx.lineTo(ix1, iy1); ctx.lineTo(ix0, iy0);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  // filo exterior: la línea viva del corte
+  ctx.globalAlpha = alpha * 0.95;
+  ctx.strokeStyle = tz.borde;
+  ctx.lineWidth = 2 + tz.ancho * 1.5;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < n; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.stroke();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  const h = Math.floor(n * 0.4);
+  ctx.moveTo(pts[h][0], pts[h][1]);
+  for (let i = h + 1; i < n; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// destello en la punta ("kirari"): anuncia el tajo que viene / el kaeshi listo
+function drawGlint(x, y, size, color, rot) {
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(rot || 0);
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const r = i % 2 === 0 ? size : size * 0.18;
+    const a = i * Math.PI / 4;
+    ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  ctx.closePath(); ctx.fill();
+  ctx.globalAlpha = 0.5;
+  ctx.beginPath(); ctx.arc(0, 0, size * 0.35, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+// partículas propias del estilo a lo largo del tajo (visual: Math.random ok)
+const FX_ESTILO = {
+  chispa: { colors: ['#ffffff', '#fff4c0'], n: 8, size: 2, grav: false, spd: 120, life: 0.3 },
+  oro:    { colors: ['#fff0a0', '#e8c050', '#ffffff'], n: 12, size: 2, grav: false, spd: 60, life: 0.5 },
+  brasa:  { colors: ['#ffb040', '#ff7020', '#ffe080'], n: 14, size: 2.5, grav: false, spd: 90, life: 0.55, up: -60 },
+  petalo: { colors: ['#ffc8e8', '#f0a0d0', '#ffffff'], n: 12, size: 3.5, grav: false, spd: 70, life: 0.9, up: 40 },
+  polvo:  { colors: ['rgba(190,170,140,0.7)', 'rgba(150,130,110,0.6)'], n: 10, size: 5, grav: false, spd: 60, life: 0.6, disc: true },
+  hoja:   { colors: ['#9ad04a', '#6aa030', '#c8e070'], n: 10, size: 3.5, grav: false, spd: 90, life: 0.8, up: 30 },
+  bruma:  { colors: ['rgba(160,240,235,0.45)', 'rgba(200,180,240,0.4)'], n: 9, size: 7, grav: false, spd: 40, life: 0.7, disc: true },
+  pluma:  { colors: ['#1a1014', '#3a2a3a', '#e03020'], n: 10, size: 4, grav: false, spd: 80, life: 0.9, up: 35 },
+  agua:   { colors: ['#c0f0ff', '#70c0e0', '#ffffff'], n: 16, size: 2.5, grav: true, spd: 160, life: 0.6 },
+};
+function spawnFxEstilo(p, pts) {
+  const tz = (p.estilo && p.estilo.trazo) || ESTILO_BASE.trazo;
+  const d = FX_ESTILO[tz.fx] || FX_ESTILO.chispa;
+  for (let i = 0; i < d.n; i++) {
+    const s = pts[Math.floor(Math.random() * pts.length)];
+    const a = Math.random() * Math.PI * 2, v = d.spd * (0.3 + Math.random());
+    particles.push({
+      x: s[0], y: s[1], vx: Math.cos(a) * v + p.facing * 40, vy: Math.sin(a) * v + (d.up || 0),
+      life: d.life * (0.5 + Math.random() * 0.5), maxLife: d.life,
+      color: d.colors[Math.floor(Math.random() * d.colors.length)],
+      size: d.size * (0.6 + Math.random() * 0.8), gravity: d.grav, disc: !!d.disc,
+    });
+  }
+}
+
+// polvo a los pies (aterrizaje, arrancar a correr)
+function spawnPolvo(x, y, n, dir) {
+  const nieve = typeof stage !== 'undefined' && stage && stage.id === 'nieve';
+  for (let i = 0; i < n; i++) {
+    particles.push({
+      x: x + (Math.random() - 0.5) * 16, y: y - 2,
+      vx: (dir || (Math.random() - 0.5) * 2) * (30 + Math.random() * 60), vy: -20 - Math.random() * 40,
+      life: 0.35 + Math.random() * 0.3, maxLife: 0.65,
+      color: nieve ? 'rgba(240,244,255,0.7)' : 'rgba(196,182,156,0.55)',
+      size: 4 + Math.random() * 5, gravity: false, disc: true,
+    });
+  }
+}
+
 function drawOrigami(p, ghostAlpha, rec) {
   const f = p.facing;
   const dead = p.state === PSTATE.DEAD;
@@ -146,77 +491,121 @@ function drawOrigami(p, ghostAlpha, rec) {
   const sc = p.scale || 1;
   const R = rigOf(p.char.id);              // rig base + ajuste por personaje
   const H = PUPPET_H * sc * (R.heightMul || 1);
-  const hipY = -R.hipFrac * H, shY = -R.shoulderFrac * H;
+  const ghost = ghostAlpha !== undefined;
 
-  // estado del combate → inclinación del torso, arremetida y giro de la katana.
-  // Las poses se autoran en espacio LOCAL (el personaje "mira a la derecha");
-  // el ctx.scale(f,1) de abajo voltea el muñeco entero, así que el corte se ve
-  // de arriba→abajo igual a la izquierda que a la derecha (sin multiplicar f).
-  // Ataque normal = corte vertical · abajo+ataque = estocada (p.attackThrust).
-  const thrust = p.attackThrust;
-  // la kamae inclina el brazo armado: jōdan alza la hoja, gedan la baja —
-  // así la línea del rival se lee en la silueta, sin HUD
-  const km = (p.state === PSTATE.WINDUP || p.state === PSTATE.ATTACK || p.state === PSTATE.RECOVER)
-    ? (p.atkKamae != null ? p.atkKamae : 1)
-    : (p.kamae != null ? p.kamae : 1);
-  // armRot por línea: alta = hoja en alto, media = a media altura, baja = rasante.
-  // Se separan bien las tres para que la kamae se lea de un vistazo (sin HUD).
-  let lean = 0, dx = 0, armRot = km === 0 ? -1.00 : km === 2 ? 0.55 : -0.30;
-  switch (p.state) {
-    case PSTATE.WINDUP:  lean = thrust ? -0.06 : (km === 2 ? -0.16 : -0.12); dx = thrust ? -4 : 0;
-                         armRot = thrust ? -0.15 : (km === 0 ? -1.55 : km === 2 ? -0.25 : -0.85); break;
-    case PSTATE.FEINT:   lean = -0.08; armRot = -0.70; break;
-    case PSTATE.ATTACK:  lean = thrust ? 0.10 : 0.20; dx = thrust ? 24 : 14;
-                         armRot = thrust ? 0.02 : (km === 0 ? 0.70 : km === 2 ? 0.00 : 0.35); break;
-    case PSTATE.RECOVER: lean = thrust ? 0.06 : 0.10; dx = thrust ? 10 : 6;
-                         armRot = thrust ? 0.00 : (km === 0 ? 0.55 : km === 2 ? 0.10 : 0.30); break;
-    case PSTATE.GUARD:   lean = -0.10; armRot = km === 0 ? -1.05 : km === 2 ? 0.15 : -0.45; break;
-    case PSTATE.STAGGER:
-    case PSTATE.HITSTUN: lean = -0.24; dx = -6; armRot = -0.20; break;
-    case PSTATE.EXPOSED: lean = 0.14 + Math.sin(p.bob * 6) * 0.04; armRot = 0.10; break;
+  // reloj real de la memoria de animación (visual; no toca la simulación)
+  const m = memDe(p);
+  const now = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+  const dt = m.t ? Math.min(0.05, Math.max(0, now - m.t)) : 1 / 60;
+  m.t = now;
+
+  const u = progresoEstado(p, m);
+  const raw = poseDe(p, u);
+  const P = suavizarPose(m, raw, dt, p.state === PSTATE.ATTACK ? Infinity : p.state === PSTATE.WINDUP ? 32 : 16);
+
+  // eventos visuales: golpe recibido (destello), aterrizaje (aplaste + polvo)
+  if (!ghost) {
+    if (p.vida < m.vida - 0.01) m.flash = 0.13;
+    m.vida = p.vida;
+    if (p.onGround && !m.wasGround && !dead) { m.squash = 0.16; spawnPolvo(p.x, p.y, 7); }
+    m.wasGround = p.onGround;
+    // correr levanta polvo del talón
+    if (p.onGround && Math.abs(p.vx) > 120 && !dead) {
+      m.dustT -= dt;
+      if (m.dustT <= 0) { m.dustT = 0.18; spawnPolvo(p.x - f * 10, p.y, 1, -Math.sign(p.vx)); }
+    }
   }
-  // iai: en reposo con la katana envainada, el brazo armado baja al costado
-  if (p.sheathed && p.state === PSTATE.IDLE) { armRot = 0.85; lean = -0.03; }
+  m.flash = Math.max(0, m.flash - dt);
+  m.squash = Math.max(0, m.squash - dt);
 
-  ctx.save();
-  if (ghostAlpha !== undefined) ctx.globalAlpha = ghostAlpha;
-  ctx.translate(p.x + f * dx, p.y);
-  if (dead) {
-    const fall = Math.min(1, p.deathT * 2.8);
-    ctx.rotate(-f * fall * 1.45);
-    ctx.translate(0, fall * 8);
-  }
-  ctx.scale(f, 1);                       // mira a la derecha por defecto
+  // aplastar/estirar: aterrizaje y salto
+  const sq = m.squash > 0 ? Math.sin((m.squash / 0.16) * Math.PI) * 0.10 : 0;
+  const sy = 1 - sq + P.stretch, sx = 1 + sq * 0.8 - P.stretch * 0.5;
+  const spinX = Math.cos(P.spin || 0);
 
-  const walking = !dead && p.onGround && Math.abs(p.vx) > 30;
+  const walking = !dead && p.onGround && Math.abs(p.vx) > 30 && p.state === PSTATE.IDLE;
   const phase = Math.sin(p.bob * 1.6);
   const wbob = walking ? Math.abs(phase) * R.walkBob : 0;
+  const g = rigGeom(p, R, H, rec, P, bob, wbob);
+
+  // estela del tajo: se re-muestrea la punta durante ATTACK y se deja
+  // desvanecer después (no se dibuja para fantasmas ni muertos)
+  if (!ghost && !dead) {
+    if (p.state === PSTATE.ATTACK) {
+      const pts = muestrearTajo(p, R, H, rec, Math.max(0.12, u), sx, sy);
+      m.trail = { pts, life: 0.24, maxLife: 0.24, trazo: (p.estilo && p.estilo.trazo) || ESTILO_BASE.trazo };
+      if (m.fxSerial !== (p.chainSerial || 0)) { m.fxSerial = p.chainSerial || 0; spawnFxEstilo(p, pts); }
+    } else if (m.trail) {
+      m.trail.life -= dt;
+      if (m.trail.life <= 0) m.trail = null;
+    }
+  }
+
+  ctx.save();
+  if (ghost) ctx.globalAlpha = ghostAlpha;
+  ctx.translate(p.x + f * P.dx, p.y);
+  if (dead) {
+    // muerte en dos tiempos: cae de rodillas y luego se desploma
+    const t = p.deathT || 0;
+    const kneel = Math.min(1, t * 5);
+    const fall = clamp01((t - 0.35) * 2.6);
+    ctx.rotate(f * 0.22 * kneel * (1 - fall) - f * easeInOut(fall) * 1.45);
+    ctx.translate(0, fall * 8);
+  }
+  ctx.scale(f * sx * spinX, sy);          // mira a la derecha por defecto
+  if (m.flash > 0 && !ghost) {
+    // destello de impacto: silueta blanca el primer instante, luego rojiza
+    ctx.filter = m.flash > 0.07 ? 'brightness(0) invert(1)' : 'brightness(1.6) sepia(1) saturate(4) hue-rotate(-30deg)';
+  }
 
   // desplazamientos por pieza (el editor de rig los mueve arrastrando)
-  const tdx = (R.torsoDX || 0) * H, tdy = (R.torsoDY || 0) * H;
-  const adx = (R.armsDX || 0) * H, ady = (R.armsDY || 0) * H;
   const ldx = (R.lowerDX || 0) * H, ldy = (R.lowerDY || 0) * H;
+  const legPoseF = dead ? -0.1 : P.legF, legPoseB = dead ? 0.1 : P.legB;
 
   // 1) parte baja: hakama completo (1 pieza) o una pierna duplicada (delante/
   //    atrás) con zancada. Sube `seam` bajo el torso para tapar el hueco.
   const seam = R.seamOverlap * H;
   if (legIsFull(p.char.id)) {
-    const sway = walking ? phase * R.lowerSway : 0;
-    drawPart(rec.pierna, R.lowerAnchor, ldx, hipY + wbob - seam + ldy, R.lowerHFrac * H + seam, null, sway);
+    const sway = walking ? phase * R.lowerSway : (legPoseF + legPoseB) * 0.15;
+    drawPart(rec.pierna, R.lowerAnchor, ldx, g.hipY + wbob - seam + ldy, R.lowerHFrac * H + seam - P.crouch * H, null, sway);
   } else {
-    const sw = walking ? phase * R.legSwing : 0.05;
+    const sw = walking ? phase * R.legSwing : 0;
     const legH = R.legHFrac * H + seam, split = R.legSplitFrac * H;
     const bdx = (R.legBackDX || 0) * H, bdy = (R.legBackDY || 0) * H;
     const fdx = (R.legFrontDX || 0) * H, fdy = (R.legFrontDY || 0) * H;
-    drawPart(rec.pierna, R.legAnchor, -split + ldx + bdx, hipY - seam + ldy + bdy, legH, null, -sw + (R.legBackRot || 0));   // trasera
-    drawPart(rec.pierna, R.legAnchor,  split + ldx + fdx, hipY - seam + ldy + fdy, legH, null,  sw + (R.legFrontRot || 0));  // delantera
+    // la cadera baja al agacharse y la pierna abierta se "acorta" en vertical:
+    // se reescala cada pierna para que el pie siga pisando el suelo
+    const legB = -sw + legPoseB + (R.legBackRot || 0), legF = sw + legPoseF + (R.legFrontRot || 0);
+    const baja = (R.hipFrac - P.crouch) / R.hipFrac;
+    const hB = legH * Math.min(1.15, baja / Math.max(0.6, Math.cos(legPoseB)));
+    const hF = legH * Math.min(1.15, baja / Math.max(0.6, Math.cos(legPoseF)));
+    drawPart(rec.pierna, R.legAnchor, -split + ldx + bdx, g.hipY - seam + ldy + bdy, hB, null, legB);   // trasera
+    drawPart(rec.pierna, R.legAnchor,  split + ldx + fdx, g.hipY - seam + ldy + fdy, hF, null, legF);   // delantera
   }
   // 2) torso + cabeza: pivota en la cintura, se inclina (rotación en local)
-  drawPart(rec.torso, R.torsoAnchor, tdx, hipY + bob + wbob + tdy, R.torsoHFrac * H, null, lean);
-  // 3) brazos + katana: pivotan en el hombro y giran con la pose (rotación en local)
-  drawPart(rec.brazos, R.armsAnchor, R.shoulderXFrac * H + adx, shY + bob + wbob + ady, null, R.armsWFrac * H, armRot);
-
+  drawPart(rec.torso, R.torsoAnchor, g.pivX, g.pivY, R.torsoHFrac * H, null, P.lean);
+  // 3) brazos + katana: pivotan en el hombro (que sigue al torso) y giran con la pose
+  drawPart(rec.brazos, R.armsAnchor, g.shX, g.shY, null, R.armsWFrac * H, P.arm);
+  ctx.filter = 'none';
   ctx.restore();
+
+  if (ghost || dead) return;
+  // la estela se dibuja SOBRE el muñeco: el filo pasa por delante
+  if (m.trail) drawTrail(m.trail, m.trail.life / m.trail.maxLife);
+  const tip = aMundo(p, P, sx * spinX, sy, g.tipX, g.tipY);
+  // kirari: brillo en la punta al final de la preparación (el tajo viene)
+  if (p.state === PSTATE.WINDUP && u > 0.55) {
+    const k = (u - 0.55) / 0.45;
+    drawGlint(tip[0], tip[1], 6 + 10 * Math.sin(k * Math.PI), p.kaeshi ? '#ffe890' : '#ffffff', now * 3);
+  }
+  // kaeshi listo: la hoja arde en oro mientras dura la ventana del contragolpe
+  if (p.estilo && p.estilo.kaeshi && p.kaeshiT > 0) {
+    drawGlint(tip[0], tip[1], 5 + Math.sin(now * 30) * 2, '#f4d860', now * 5);
+  }
+  // guardia en ventana de parry: filo encendido
+  if (p.state === PSTATE.GUARD && (p.guardT || 0) <= (p.parryWin || 0)) {
+    drawGlint(tip[0], tip[1], 7, '#b0f0ff', 0.4);
+  }
 }
 
 // recorte de una pieza: la figura entera, movida por el estado del combate
@@ -1230,21 +1619,93 @@ function kamaeHint() {
   return `mantén ${keyLabel(m.feint)} + ${keyLabel(m.jump)}/${keyLabel(m.down)} para cambiar de postura (alta·media·baja)`;
 }
 
+// ¿el luchador se dibuja con el recorte articulado? (entonces su estela de
+// corte la dibuja drawOrigami siguiendo la hoja real)
+function tieneRig(p) {
+  const rig = p && p.char && partsImg[p.char.id];
+  return !!(rig && rig.ready);
+}
+
+// trazo de pincel (sumi-e): lente que se afina en las puntas, en vez de una raya
+function drawBrushStroke(x1, y1, x2, y2, w, color, alpha) {
+  const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len, ny = dx / len;
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.quadraticCurveTo(mx + nx * w, my + ny * w, x2, y2);
+  ctx.quadraticCurveTo(mx - nx * w * 0.35, my - ny * w * 0.35, x1, y1);
+  ctx.fill();
+  ctx.restore();
+}
+
+// cámara cinematográfica: se acerca al duelo en el corte mortal y en los
+// choques con cámara lenta; franjas de cine en la muerte. Visual puro.
+let camZ = 1, camCX = 0, camCY = 0, camT = 0;
+function camaraDuelo() {
+  const now = performance.now() / 1000;
+  const dt = camT ? Math.min(0.05, now - camT) : 1 / 60;
+  camT = now;
+  let z = 1, cx = W / 2, cy = H / 2;
+  if (p1 && p2 && slowmoTimer > 0 && timeScale < 1) {
+    const muerte = p1.state === PSTATE.DEAD || p2.state === PSTATE.DEAD;
+    z = muerte ? 1.24 : 1.08;
+    cx = (p1.x + p2.x) / 2;
+    cy = (bodyCenterY(p1) + bodyCenterY(p2)) / 2 - 10;
+  }
+  const rate = z > camZ ? 7 : 2.5;
+  const a = 1 - Math.exp(-rate * dt);
+  if (camZ < 1.001 && z > 1) { camCX = cx; camCY = cy; }
+  camZ += (z - camZ) * a;
+  camCX += (cx - camCX) * a;
+  camCY += (cy - camCY) * a;
+  const vx = Math.max(W / (2 * camZ), Math.min(W - W / (2 * camZ), camCX));
+  const vy = Math.max(H / (2 * camZ), Math.min(H - H / (2 * camZ), camCY));
+  ctx.translate(W / 2, H / 2);
+  ctx.scale(camZ, camZ);
+  ctx.translate(-vx, -vy);
+}
+
 function drawFight(t) {
+  ctx.save();
+  camaraDuelo();
   drawBackground();
   drawCapas('cielo');        // capa de adorno detrás de los luchadores (escena.js)
   drawGhost();
 
-  for (const s of slashTrails) {
-    const a = s.life / s.maxLife;
+  // manchas de sangre en el suelo (se secan: pierden opacidad despacio)
+  for (const d of decals) {
+    ctx.globalAlpha = d.a;
+    ctx.fillStyle = '#6a0a0a';
+    ctx.beginPath(); ctx.ellipse(d.x, d.y, d.r * 1.8, d.r * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+    d.a = Math.max(0.35, d.a - 0.0004);
+  }
+  ctx.globalAlpha = 1;
+
+  // ondas de choque (remate 'onda'): anillo que corre por el suelo
+  for (const sw of shockwaves) {
+    const a = sw.life / sw.maxLife;
     ctx.save();
-    ctx.strokeStyle = `rgba(255,255,255,${a * 0.9})`;
-    ctx.lineWidth = 3 + a * 5;
-    ctx.lineCap = 'round';
-    ctx.shadowColor = '#fff';
-    ctx.shadowBlur = 16 * a;
-    ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke();
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = sw.color;
+    ctx.lineWidth = 3 + 6 * a;
+    ctx.beginPath(); ctx.ellipse(sw.x, sw.y, sw.r, sw.r * 0.2, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,240,200,' + (a * 0.8) + ')';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.ellipse(sw.x, sw.y, sw.r * 0.7, sw.r * 0.14, 0, 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
+    if (Math.random() < 0.5) spawnPolvo(sw.x + (Math.random() < 0.5 ? -1 : 1) * sw.r, sw.y, 1);
+  }
+
+  for (const s of slashTrails) {
+    if (s.owner && tieneRig(s.owner)) continue;   // ya dibuja la estela real de su hoja
+    const a = s.life / s.maxLife;
+    const len = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
+    drawBrushStroke(s.x1, s.y1, s.x2, s.y2, Math.min(22, 4 + len * 0.08) * (0.4 + a * 0.6), '#ffffff', a * 0.9);
+    if (len > 120) drawBrushStroke(s.x1, s.y1, s.x2, s.y2, Math.min(10, len * 0.03) * a, '#b01818', a);   // el tajo mortal
   }
 
   drawSamurai(p1);
@@ -1264,7 +1725,10 @@ function drawFight(t) {
   for (const pa of particles) {
     ctx.globalAlpha = Math.max(0, pa.life / pa.maxLife);
     ctx.fillStyle = pa.color;
-    ctx.fillRect(pa.x - pa.size / 2, pa.y - pa.size / 2, pa.size, pa.size);
+    if (pa.disc) {           // bruma / polvo: disco que se expande al disiparse
+      const r = pa.size * (1.6 - 0.6 * (pa.life / pa.maxLife));
+      ctx.beginPath(); ctx.arc(pa.x, pa.y, r, 0, Math.PI * 2); ctx.fill();
+    } else ctx.fillRect(pa.x - pa.size / 2, pa.y - pa.size / 2, pa.size, pa.size);
   }
   ctx.globalAlpha = 1;
 
@@ -1282,8 +1746,18 @@ function drawFight(t) {
   }
   ctx.globalAlpha = 1;
   ctx.textAlign = 'left';
+  ctx.restore();             // fin de la cámara: el HUD va fijo en pantalla
+
+  // franjas de cine mientras la cámara se acerca al corte mortal
+  const cine = Math.max(0, Math.min(1, (camZ - 1.04) / 0.2));
+  if (cine > 0) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, 40 * cine);
+    ctx.fillRect(0, H - 40 * cine, W, 40 * cine);
+  }
 
   drawBars();
+  if (modoDojo) drawDojoHUD(t);    // pergamino del estilo y panel del muñeco
 
   if (roundStartTimer > 0 && scene === 'fight') {
     if (roundStartTimer > 0.7) {

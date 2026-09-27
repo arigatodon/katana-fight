@@ -24,7 +24,7 @@ const ROOT = path.join(__dirname, '..');
 // Versión de la simulación/protocolo del duelo — DEBE coincidir con GAME_VER
 // (js/core.js). Un cliente de otra versión (página cacheada) calcularía OTRA
 // pelea en el lockstep, así que no se empareja: recibe {t:'ver'} y se cierra.
-const PROTO_VER = 2;
+const PROTO_VER = 3;
 // herramientas de edición (listar/guardar/generar) solo en local, nunca en el
 // contenedor de producción
 const DEV = process.env.NODE_ENV !== 'production';

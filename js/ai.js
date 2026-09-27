@@ -7,6 +7,8 @@
 function updateAI(p, foe, dt) {
   const out = { left: false, right: false, jump: false, down: false, attack: false, feint: false, guard: false };
   if (p.state === PSTATE.DEAD || roundStartTimer > 0) return out;
+  // dojo: el muñeco hace lo que pidió el jugador (salvo en modo LIBRE)
+  if (modoDojo && DOJO_MODOS[dojoModo].id !== 'libre') return dojoAI(p, foe, dt);
   const dist = Math.abs(p.x - foe.x);
   const dirToFoe = foe.x > p.x ? 1 : -1;
   const agresiva = p.bet === 'agresivo' || p.bet === 'desesperado';
@@ -14,6 +16,24 @@ function updateAI(p, foe, dt) {
   // memoria de la kamae del rival (los jefes castigan la kamae plantada)
   if (p.aiFoeKamae !== foe.kamae) { p.aiFoeKamae = foe.kamae; p.aiFoeKamaeT = 0; }
   else p.aiFoeKamaeT = (p.aiFoeKamaeT || 0) + dt;
+
+  // cadena del estilo: si su corte tocó, decide UNA vez por corte si sigue con
+  // el siguiente eslabón (la agresiva casi siempre), tras un respiro breve
+  if (puedeEncadenar(p)) {
+    if (p.aiChainSerial !== p.chainSerial) {
+      p.aiChainSerial = p.chainSerial;
+      p.aiChainGo = Math.random() < (agresiva ? 0.85 : 0.45 + p.st.corte / 80);
+      p.aiChainWait = 0.02 + Math.random() * 0.1;
+    }
+    p.aiChainWait -= dt;
+    if (p.aiChainGo && p.aiChainWait <= 0) { out.attack = true; return out; }
+  }
+  // kaeshi: el estilo que devuelve tras parar aprovecha la ventana
+  if (p.estilo.kaeshi && p.kaeshiT > 0 && canAct(p) && dist < p.reach * 1.1 &&
+      Math.random() < 0.25 + p.st.reflejos / 120) {
+    out.attack = true;
+    return out;
+  }
 
   // reacción al windup del rival: bloquear, neutralizar, saltar o contraatacar
   if (foe.state === PSTATE.WINDUP && dist < p.reach * 1.7 && p.aiReact <= 0) {

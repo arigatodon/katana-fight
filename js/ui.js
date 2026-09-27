@@ -11,13 +11,14 @@ const TITLE_OPTS = [
   { id: 'online', label: 'DUELO EN LÍNEA' },
   { id: 'final',  label: 'GOLPE FINAL' },
   { id: 'vs2',    label: '2 JUGADORES' },
+  { id: 'dojo',   label: 'DOJO · PRÁCTICA' },
   { id: 'opts',   label: 'OPCIONES' },
   { id: 'rank',   label: 'RÉCORDS' },
 ];
 
-// geometría del menú del título (compartida por dibujo y toque); con 7
-// opciones se compacta un poco para que quepan con su descripción
-const TITLE_MENU_Y0 = 0.455, TITLE_MENU_DY = 36;
+// geometría del menú del título (compartida por dibujo y toque); con 8
+// opciones se compacta para que quepan con su descripción
+const TITLE_MENU_Y0 = 0.43, TITLE_MENU_DY = 30;
 function titleRowY(i) { return H * TITLE_MENU_Y0 + i * TITLE_MENU_DY; }
 
 // breve descripción de la opción resaltada (debajo del menú)
@@ -27,6 +28,7 @@ const TITLE_DESC = {
   online: 'emparejamiento · tu récord se guarda',
   final:  'un solo corte decide el duelo',
   vs2:    'dos jugadores en la misma pantalla',
+  dojo:   'aprende el estilo de corte de cada guerrero',
   opts:   'controles y pantalla completa',
   rank:   'mejores puntajes por modo',
 };
@@ -114,6 +116,8 @@ const LINK_MPAGO = 'https://link.mercadopago.cl/igordev';   // acepta tarjetas y
 function titleChoose(i) {
   const id = TITLE_OPTS[i].id;
   sfxConfirm();
+  modoDojo = false;          // cualquier modo sale del dojo; solo 'dojo' lo activa
+  if (id === 'dojo') { startDojo(); return; }
   if (id === 'rank') { setRankTab(rankTab); scene = 'ranking'; return; }
   if (id === 'vs2') { start2P(); return; }
   if (id === 'online') { enterNombre(); return; }
@@ -414,6 +418,8 @@ function handleMenus() {
       if (code === 'Enter' || code === 'Space' || code === 'Escape') { sfxConfirm(); netLeave2Title(); }
     } else if (scene === 'mirar') {
       if (code === 'Enter' || code === 'Space' || code === 'Escape') { sfxConfirm(); specLeave(); scene = 'title'; }
+    } else if (scene === 'fight' && modoDojo) {
+      dojoTecla(code);           // M cambia el muñeco · ESC sale del dojo
     } else if (scene === 'matchEnd') {
       if (netActive() || netResult) {
         // online: ENTER pide revancha (si el rival sigue ahí), ESC sale
@@ -474,13 +480,14 @@ function handleMenus() {
       else { replay.paused = !replay.paused; sfxSelect(); }
       continue;
     }
+    if (scene === 'fight' && modoDojo) { dojoToque(tp); continue; }
     if (scene === 'title') {
       if (tp.y < 34) {        // enlaces de las esquinas superiores
         if (tp.x < 120) { window.open(LINK_HOME, '_blank'); continue; }
         if (tp.x > W - 120) { window.open(LINK_DONA, '_blank'); continue; }
       }
       // link del beat 'em up (revelado al desbloquear un yokai)
-      if (save.unlocked.length > 0 && Math.abs(tp.y - H * 0.90) < 18 && Math.abs(tp.x - W / 2) < 240) {
+      if (save.unlocked.length > 0 && Math.abs(tp.y - H * 0.935) < 16 && Math.abs(tp.x - W / 2) < 240) {
         sfxConfirm(); location.href = 'beat.html'; continue;
       }
       // "mirar el duelo en curso" (a la derecha del menú, bajo la presencia)
@@ -669,9 +676,9 @@ function drawTitle(t) {
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
   ctx.fillRect(0, 0, W, H);
 
-  drawCenterText('刀', 80, H * 0.2, '#b03030', '#000');
-  drawCenterText('K A T A N A   F I G H T', 44, H * 0.34);
-  drawCenterText('fácil de aprender · difícil de dominar', 15, H * 0.41, '#c0b8a8', 'transparent');
+  drawCenterText('刀', 72, H * 0.165, '#b03030', '#000');
+  drawCenterText('K A T A N A   F I G H T', 44, H * 0.3);
+  drawCenterText('fácil de aprender · difícil de dominar', 15, H * 0.365, '#c0b8a8', 'transparent');
 
   for (let i = 0; i < TITLE_OPTS.length; i++) {
     const sel = menuSel === i;
@@ -748,7 +755,7 @@ function drawTitle(t) {
     ctx.globalAlpha = 0.6 + Math.sin(t * 4) * 0.4;
     ctx.fillStyle = '#e8c050';
     ctx.shadowColor = '#b03030'; ctx.shadowBlur = 12;
-    ctx.fillText("⚔ KATANA RŌNIN · beat 'em up — pulsa B ⚔", W / 2, H * 0.90);
+    ctx.fillText("⚔ KATANA RŌNIN · beat 'em up — pulsa B ⚔", W / 2, H * 0.935);
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
   }
@@ -757,7 +764,7 @@ function drawTitle(t) {
   ctx.font = '12px "Courier New", monospace';
   ctx.fillStyle = '#665';
   const secretos = save.unlocked.length;
-  ctx.fillText(`victorias: ${save.totalWins} · mejor racha: ${save.bestStreak} · secretos: ${secretos}/${SECRET_CHARS.length} · título: ${currentTitle()}`, W / 2, H * 0.96);
+  ctx.fillText(`victorias: ${save.totalWins} · mejor racha: ${save.bestStreak} · secretos: ${secretos}/${SECRET_CHARS.length} · título: ${currentTitle()}`, W / 2, H * 0.978);
   // enlaces en las esquinas (tocables / clicables)
   ctx.font = '12px "Courier New", monospace';
   ctx.textAlign = 'left';
@@ -959,8 +966,12 @@ function drawChoose(t) {
     ctx.fillText(ch.name, c.x, c.y + 42 - lift);
   }
   ctx.textAlign = 'left';
-  drawCenterText(pool[chooseSel].desc, 16, H * 0.86, '#c0b8a8', 'transparent');
-  drawCenterText(TOUCH ? 'toca dos veces para elegir' : `A/D/W/S elegir · ${keyLabel(save.keymap.p1.attack)} aceptar`, 13, H * 0.94, '#776', 'transparent');
+  drawCenterText(pool[chooseSel].desc, 16, H * 0.855, '#c0b8a8', 'transparent');
+  // pergamino: el estilo de corte del guerrero y su cadena
+  const est = estiloDe(pool[chooseSel]);
+  drawCenterText(`流 ${est.kanji} ${est.name} — ${est.desc}`, 13, H * 0.9, '#e8c050', 'transparent');
+  drawCenterText(cadenaTexto(est), 11, H * 0.935, '#9ad0e8', 'transparent');
+  drawCenterText(TOUCH ? 'toca dos veces para elegir' : `A/D/W/S elegir · ${keyLabel(save.keymap.p1.attack)} aceptar`, 12, H * 0.975, '#776', 'transparent');
 }
 
 // presentación del duelo (automática, se puede saltar)

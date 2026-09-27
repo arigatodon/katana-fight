@@ -61,7 +61,8 @@ const RUN_FIGHTS = 6;          // torneo: 5 duelos al azar + el jefe secreto
 // un replay o un rival de otra versión calcularía una pelea distinta.
 // DEBE coincidir con PROTO_VER en server/server.js.
 // v2: kamae (posturas de kenjutsu) y cortes direccionales
-const GAME_VER = 2;
+// v3: estilos de corte por guerrero (cadenas, remates y kaeshi — ESTILOS en data.js)
+const GAME_VER = 3;
 
 // ---------------- Controles remapeables ----------------
 // teclas por defecto de cada jugador; se guardan junto al save
@@ -192,6 +193,11 @@ let diarioRank = null;          // tabla del día que sirve el servidor (GET /di
 let gestasNuevas = [];          // gestas desbloqueadas en este duelo (se muestran discretas)
 let ultimaEjecucion = false;    // el último kill fue por rotura de postura (verdugo)
 let playerChar = null, rivalChar = null;
+
+// dojo: práctica libre contra un muñeco configurable (dojo.js). Nadie muere:
+// el corte mortal se anota y el caído se levanta. Solo local.
+let modoDojo = false;
+let dojoModo = 1;               // índice en DOJO_MODOS (qué hace el muñeco)
 
 // selección de personaje
 let chooseSel = 0;

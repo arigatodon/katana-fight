@@ -7,6 +7,8 @@
 let particles = [];
 let slashTrails = [];
 let floaters = [];
+let shockwaves = [];            // ondas de choque en el suelo (remate 'onda')
+let decals = [];                // manchas de sangre en el suelo (solo visual)
 
 function spawnParticles(x, y, n, colors, speed, life) {
   for (let i = 0; i < n; i++) {
@@ -65,7 +67,7 @@ function spawnBlood(x, y, dir, amount) {
       vy: Math.sin(a) * s - 130 - Math.random() * 110,
       life: 0.4 + Math.random() * 0.55, maxLife: 0.95,
       color: ['#c01818', '#8e0e0e', '#e03030', '#a01414'][Math.floor(Math.random() * 4)],
-      size: 2 + Math.random() * 3.5, gravity: true,
+      size: 2 + Math.random() * 3.5, gravity: true, blood: true,
     });
   }
 }
