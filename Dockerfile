@@ -17,6 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY index.html beat.html forja.html forja_admin.html og.png ./
+# SEO: robots + sitemap en la raíz
+COPY robots.txt sitemap.xml ./
 COPY assets ./assets
 # datos del juego que el cliente carga en runtime (los producen los
 # editores locales, pero el juego los consume en producción)
